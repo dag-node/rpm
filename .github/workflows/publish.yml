@@ -92,6 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          mkdir -p _site   # exist even with zero packages (initial state) so the copies + index below work
           for r in $(find incoming -name '*.rpm'); do
             base="$(basename "${r}")"
             case "${base}" in
@@ -117,6 +118,13 @@ jobs:
           # Keep the rpm.dagnode.com custom domain bound under GitHub-Actions Pages deploys.
           echo 'rpm.dagnode.com' > _site/CNAME
           echo "served tree:"; find _site -maxdepth 4 -type d | sort
+
+      # Utilitarian autoindex so the served tree is browsable in a browser (Pages has no directory
+      # listing). dnf only requests explicit file paths, so per-directory index.html is inert to
+      # clients. Regenerated from the assembled _site each run (never drifts); the empty initial
+      # state still renders -- the root page shows the key + install snippet.
+      - name: Generate browsable index pages
+        run: python3 .github/scripts/genindex.py _site
 
       - uses: actions/upload-pages-artifact@v3
         with:
