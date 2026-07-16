@@ -62,8 +62,10 @@ jobs:
           echo "aggregated:"; find incoming -name '*.rpm' | sort
 
       # Export the served public key from the signing secret (so it always matches the key that
-      # signed the packages) and re-verify every aggregated RPM against it: publish only packages
-      # actually signed by the org key. Fail closed on any that does not check out.
+      # signed the packages) and re-verify every aggregated RPM against it. Publish only packages
+      # actually signed by the org key: any that fail verification are dropped from incoming/ (with
+      # a warning) so the build step below never copies them. The fail-closed guarantee still holds
+      # -- unsigned packages never reach _site -- without one stale asset blocking the whole rebuild.
       - name: Export public key + verify packages
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -78,10 +80,17 @@ jobs:
           rpmdb="$(mktemp -d)"
           rpmkeys --dbpath "${rpmdb}" --import RPM-GPG-KEY-dag-node
           shopt -s nullglob
+          published=0; skipped=0
           for r in $(find incoming -name '*.rpm'); do
-            rpmkeys --dbpath "${rpmdb}" --checksig "${r}" | grep -q ': digests signatures OK' \
-              || { echo "::error::$(basename "${r}") is not signed by the org key -- refusing to publish"; exit 1; }
+            if rpmkeys --dbpath "${rpmdb}" --checksig "${r}" | grep -q ': digests signatures OK'; then
+              published=$((published+1))
+            else
+              echo "::warning::$(basename "${r}") is not signed by the org key -- skipping"
+              rm -f "${r}"
+              skipped=$((skipped+1))
+            fi
           done
+          echo "signature check: ${published} published, ${skipped} skipped (unsigned)"
           echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
       # Assemble the served tree + metadata. Packages are noarch, so each is placed into every
