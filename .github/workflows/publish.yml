@@ -72,7 +72,9 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "${GPG_SIGNING_KEY}" ] || { echo "::error::GPG_SIGNING_KEY secret not set"; exit 1; }
-          GNUPGHOME="$(mktemp -d)"; export GNUPGHOME
+          # tmpfs (RAM) keyring: the imported private key never lands on persistent disk, and the
+          # ephemeral runner VM (not shared with other jobs) is destroyed at job end.
+          GNUPGHOME="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"; export GNUPGHOME
           printf '%s\n' "${GPG_SIGNING_KEY}" | gpg --batch --quiet --import
           fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
           [ -n "${fpr}" ] || { echo "::error::no secret key after import"; exit 1; }
@@ -98,9 +100,15 @@ jobs:
       # noarch package must resolve there. --database adds SQLite metadata some clients prefer;
       # repomd.xml is detached-signed for repo_gpgcheck=1.
       - name: Build signed repository into _site
+        env:
+          GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
           shopt -s nullglob
+          # The org signing key is passphrase-protected; repomd.xml is detached-signed below with
+          # the key in the tmpfs GNUPGHOME from the previous step. Keep the passphrase in the env
+          # var and stream it via stdin (--passphrase-fd 0) at sign time -- never written to a file.
+          [ -n "${GPG_SIGNING_PASSPHRASE}" ] || { echo "::error::GPG_SIGNING_PASSPHRASE secret not set"; exit 1; }
           mkdir -p _site   # exist even with zero packages (initial state) so the copies + index below work
           for r in $(find incoming -name '*.rpm'); do
             base="$(basename "${r}")"
@@ -119,7 +127,9 @@ jobs:
               d="_site/el/${major}/${arch}"
               [ -d "${d}" ] || continue
               createrepo_c --database "${d}"
-              gpg --batch --yes --detach-sign --armor "${d}/repodata/repomd.xml"
+              printf '%s' "${GPG_SIGNING_PASSPHRASE}" \
+                | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+                      --detach-sign --armor "${d}/repodata/repomd.xml"
             done
           done
           cp RPM-GPG-KEY-dag-node _site/
