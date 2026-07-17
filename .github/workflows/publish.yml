@@ -121,6 +121,13 @@ jobs:
             fi
           done
           echo "signature check: ${published} published, ${skipped} skipped (unsigned)"
+          # Zero packages with zero skips is the legitimate bootstrap state; every downloaded
+          # package failing verification is a key/secret mismatch, and deploying would replace
+          # the served repository with an empty one.
+          if [ "${skipped}" -gt 0 ] && [ "${published}" -eq 0 ]; then
+            echo "::error::every downloaded package failed signature verification -- refusing to deploy an empty repository over the served one"
+            exit 1
+          fi
           echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
       # Assemble the served tree + metadata. Packages are noarch, so each is placed into every
@@ -165,6 +172,8 @@ jobs:
               printf '%s' "${GPG_SIGNING_PASSPHRASE}" \
                 | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
                       --detach-sign --armor "${d}/repodata/repomd.xml"
+              # A zero exit alone is not proof the signature was produced; assert it validates.
+              gpg --batch --verify "${d}/repodata/repomd.xml.asc" "${d}/repodata/repomd.xml"
             done
           done
           cp RPM-GPG-KEY-dag-node _site/
