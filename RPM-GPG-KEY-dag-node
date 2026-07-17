@@ -1,6 +1,6 @@
-The following public key can be used to verify RPM Packages and
+The following public key can be used to verify RPM packages and
 repository metadata signed by DagNode. Packages and the repo
-index (repomd.xml) are signed with the ccorresponding private
+index (repomd.xml) are signed with the corresponding private
 key; import this key to enable gpgcheck and repo_gpgcheck for
 the DagNode RPM repositories.
 
