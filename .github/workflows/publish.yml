@@ -133,6 +133,9 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          # Last consumer of the tmpfs keyring: wipe it on step exit, success or failure, so the
+          # imported private key is gone before the Pages actions below run.
+          trap 'rm -rf "${GNUPGHOME}"' EXIT
           # The org signing key is passphrase-protected; repomd.xml is detached-signed below with
           # the key in the tmpfs GNUPGHOME from the previous step. Keep the passphrase in the env
           # var and stream it via stdin (--passphrase-fd 0) at sign time -- never written to a file.
