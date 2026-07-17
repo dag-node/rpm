@@ -24,6 +24,31 @@ One `.repo` serves every Enterprise Linux major and arch: `$releasever` selects 
 `repo_gpgcheck=1` verifies the repository metadata — both against the org key at
 `/RPM-GPG-KEY-dag-node`, which `dnf` imports from the `gpgkey` URL on first use.
 
+## Signing key
+
+Every package and the repository metadata are signed with the DagNode package-signing key.
+Verify its fingerprint out-of-band before trusting it — don't let the copy the repo serves
+vouch for itself:
+
+- **Key ID:** `548B3D32`
+- **Fingerprint:** `2225 6931 15E0 F9FC 6FF1 1D77 0C94 0B5D 548B 3D32`
+- **UID:** `DagNode Package Signing <tools@dagnode.com>`
+
+```bash
+# Inspect the served key before importing -- the printed fingerprint must match above.
+curl -fsSL https://rpm.dagnode.com/RPM-GPG-KEY-dag-node | gpg --show-keys
+
+# dnf imports it on first install (gpgkey= above); to import it into rpm yourself:
+sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+rpm -qi gpg-pubkey-548b3d32-*      # confirm it landed in the rpm keyring
+```
+
+**Rotation.** The key is long-lived — one key across the EL-major lifecycle, as Rocky and Alma
+do — so routine use never needs a new one; its validity is extended in place, keeping the same
+fingerprint. A new key is published only on rotation for a suspected compromise: the new
+`RPM-GPG-KEY-dag-node` and its fingerprint are announced here, and the superseded key stays
+importable while any package it signed is still served.
+
 ## Served layout
 
 ```
