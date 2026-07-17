@@ -41,21 +41,45 @@ jobs:
       - name: Install createrepo_c + rpm + gnupg
         run: sudo apt-get update && sudo apt-get install -y createrepo-c rpm gnupg
 
-      # Rebuild from the projects' releases (the source of truth): download every release's
-      # signed *.rpm for each project listed in projects.txt. Stateless and idempotent -- any
-      # dispatch just means "something changed, rebuild the whole repo". Public releases, so
-      # this repo's own GITHUB_TOKEN reads them; no cross-repo token needed.
+      # Rebuild from the projects' releases (the source of truth): for each project in
+      # projects.txt, select which release tags to keep (bounded history, see
+      # select-releases.py) and download only those releases' signed *.rpm. Stateless and
+      # idempotent -- any dispatch just means "something changed, rebuild the whole repo".
+      # Public releases, so this repo's own GITHUB_TOKEN reads them; no cross-repo token needed.
       - name: Aggregate signed RPMs from project releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # History bound: keep the latest patch of each of the KEEP_MINORS most-recent MAJOR.MINOR
+          # series per project, so the served repo cannot grow without limit. Raise to retain more
+          # minors; older ones are evicted (their releases stay on GitHub, just not served here).
+          KEEP_MINORS: "10"
         run: |
           set -euo pipefail
           mkdir -p incoming
-          grep -vE '^\s*(#|$)' projects.txt | while read -r proj; do
+          # Read the project list without a `... | while read` pipeline, whose subshell would
+          # swallow a `set -e` abort from the downloads below.
+          mapfile -t projects < <(grep -vE '^\s*(#|$)' projects.txt)
+          for proj in "${projects[@]}"; do
             echo "::group::${proj}"
-            for tag in $(gh release list --repo "${proj}" --limit 100 --json tagName -q '.[].tagName'); do
-              gh release download "${tag}" --repo "${proj}" --pattern '*.rpm' \
-                --dir "incoming/${tag}" || echo "  (${tag}: no RPM assets)"
+            # List all tags (cheap, metadata only), then let select-releases.py pick the retained
+            # set; only those are downloaded. A failed listing must abort rather than rebuild the
+            # repo without this project's packages -- the assignment propagates gh's exit status
+            # under `set -e`. --limit is generous headroom over the retained count; gh returns
+            # newest-first, so the recent minors we keep are always covered.
+            all_tags="$(gh release list --repo "${proj}" --limit 1000 --json tagName -q '.[].tagName')"
+            kept_tags="$(printf '%s\n' "${all_tags}" | python3 .github/scripts/select-releases.py "${KEEP_MINORS}")"
+            for tag in ${kept_tags}; do
+              # Only releases that actually carry a *.rpm asset are downloaded. A release with no
+              # rpm asset is normal (e.g. a docs-only tag) and skipped; a download that then FAILS
+              # is a real error (network/rate-limit) and aborts the run rather than deploying a repo
+              # that silently drops that release's already-published packages.
+              n_rpm="$(gh release view "${tag}" --repo "${proj}" --json assets \
+                        -q '[.assets[].name | select(endswith(".rpm"))] | length')"
+              if [ "${n_rpm}" -gt 0 ]; then
+                gh release download "${tag}" --repo "${proj}" --pattern '*.rpm' --dir "incoming/${tag}"
+              else
+                echo "  (${tag}: no RPM assets)"
+              fi
             done
             echo "::endgroup::"
           done
@@ -84,7 +108,11 @@ jobs:
           shopt -s nullglob
           published=0; skipped=0
           for r in $(find incoming -name '*.rpm'); do
-            if rpmkeys --dbpath "${rpmdb}" --checksig "${r}" | grep -q ': digests signatures OK'; then
+            # Require a cryptographic signature LINE that validates, not just a zero exit: `--checksig`
+            # exits 0 and prints only "digests OK" for an UNSIGNED package, so trusting its summary
+            # would publish unsigned packages. `-Kv` prints a "Signature ...: OK" line only when a
+            # signature is present and verifies against the imported org key.
+            if rpmkeys --dbpath "${rpmdb}" -Kv "${r}" 2>&1 | grep -Eqi 'signature[^:]*:[[:space:]]*OK'; then
               published=$((published+1))
             else
               echo "::warning::$(basename "${r}") is not signed by the org key -- skipping"
@@ -122,10 +150,14 @@ jobs:
               cp -f "${r}" "_site/el/${major}/${arch}/"
             done
           done
+          # Generate + sign metadata for EVERY supported tree, even one with zero packages. On the
+          # initial (empty) state no package-copy above created these dirs, so without this a client
+          # baseurl would 404 on a missing repodata/repomd.xml; createrepo_c on an empty dir emits
+          # valid (empty) metadata, and repo_gpgcheck=1 clients still need the signed repomd.xml.
           for major in 9 10; do
             for arch in x86_64 aarch64; do
               d="_site/el/${major}/${arch}"
-              [ -d "${d}" ] || continue
+              mkdir -p "${d}"
               createrepo_c --database "${d}"
               printf '%s' "${GPG_SIGNING_PASSPHRASE}" \
                 | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \

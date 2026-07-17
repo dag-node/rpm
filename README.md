@@ -69,13 +69,18 @@ This repository is the single publisher. Projects build and **sign** their own R
 own release workflow, publish them as GitHub Releases, then notify this repo
 (`repository_dispatch`, event `publish-rpm`). `.github/workflows/publish.yml` rebuilds the whole
 repository **statelessly** from the releases listed in `projects.txt` (the source of truth):
-it downloads each release's signed RPMs, re-verifies them against the org key, regenerates
+it downloads each retained release's signed RPMs, re-verifies them against the org key, regenerates
 metadata with `createrepo_c`, detached-signs `repomd.xml`, and deploys via GitHub Pages. A
 `rpm-repository` concurrency group serializes concurrent releases. Manual rebuild/backfill:
 **Actions → Publish RPM repository → Run workflow**.
+
+History is bounded so the repo cannot grow without limit: for each package it serves the latest
+patch of every `MAJOR.MINOR` series, for the 10 most-recent minors (`KEEP_MINORS` in
+`publish.yml`). Superseded patches and older minors are evicted from the served repo — their
+GitHub Releases remain, so raising the bound or a manual rebuild restores them. Nothing is ever
+deleted from a project's releases; this repo only chooses what to serve.
 
 ## Licensing
 
 The repository infrastructure and metadata do not define package licensing. Each RPM retains
 its own upstream license — see `rpm -qi <package>`.
-</content>
