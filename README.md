@@ -26,28 +26,34 @@ One `.repo` serves every Enterprise Linux major and arch: `$releasever` selects 
 
 ## Signing key
 
-Every package and the repository metadata are signed with the DagNode package-signing key.
-Verify its fingerprint out-of-band before trusting it — don't let the copy the repo serves
-vouch for itself:
+Every package and the repository metadata are signed with the DagNode signing subkey; the
+served `RPM-GPG-KEY-dag-node` carries it together with the certify-only primary key that is
+the org's signing identity (and lives offline — CI holds only the subkey). Verify the primary
+fingerprint out-of-band before trusting the key — don't let the copy the repo serves vouch
+for itself:
 
-- **Key ID:** `548B3D32`
-- **Fingerprint:** `2225 6931 15E0 F9FC 6FF1 1D77 0C94 0B5D 548B 3D32`
+<!-- Filled at the key ceremony (GPG-HINTS.md §1); placeholders until the fresh key exists. -->
+- **Key ID:** `<PRIMARY-KEY-ID>`
+- **Fingerprint:** `<PRIMARY-FINGERPRINT>`
 - **UID:** `DagNode Package Signing <tools@dagnode.com>`
 
 ```bash
-# Inspect the served key before importing -- the printed fingerprint must match above.
+# Inspect the served key before importing -- the printed primary fingerprint must match above.
 curl -fsSL https://rpm.dagnode.com/RPM-GPG-KEY-dag-node | gpg --show-keys
 
 # dnf imports it on first install (gpgkey= above); to import it into rpm yourself:
 sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
-rpm -qi gpg-pubkey-548b3d32-*      # confirm it landed in the rpm keyring
+rpm -q 'gpg-pubkey*' -i | grep -B2 -A4 DagNode    # confirm it landed in the rpm keyring
 ```
 
-**Rotation.** The key is long-lived — one key across the EL-major lifecycle, as Rocky and Alma
-do — so routine use never needs a new one; its validity is extended in place, keeping the same
-fingerprint. A new key is published only on rotation for a suspected compromise: the new
-`RPM-GPG-KEY-dag-node` and its fingerprint are announced here, and the superseded key stays
-importable while any package it signed is still served.
+**Rotation.** The primary key is long-lived — one identity across the EL-major lifecycle, as
+Rocky and Alma do — and its validity is extended in place, keeping the same fingerprint. A
+leaked CI secret burns only the subkey: the offline primary revokes it and certifies a
+replacement, the republished `RPM-GPG-KEY-dag-node` keeps the fingerprint above, and affected
+releases are re-cut so every served package is signed by the live subkey (the publish
+pipeline's verify step drops any that aren't). A brand-new identity is published only if the
+primary itself is compromised: the new key and fingerprint are announced here, and the
+superseded key stays importable while any package it signed is still served.
 
 ## Served layout
 
