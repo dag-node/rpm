@@ -31,9 +31,11 @@ script headers — this file is the invariants and conventions an agent MUST hon
 
 ## Working conventions
 
-- **PRs are required on `main`** (ruleset; no direct pushes). Branch as
-  `feature/RPM-<yyMMdd>-<name>`, target `main`; the operator merges — agents do not merge or
-  push.
+- **PRs are required on `main`** (ruleset; no direct pushes), and the PR comes from
+  `develop`. `develop` is the unblocked integration branch: small fixes commit there
+  directly — no branch per fix — while larger features branch from it as
+  `feature/RPM-<yyMMdd>-<name>` and merge back to `develop` first. The operator merges and
+  pushes — agents do neither.
 - Commit messages follow Conventional Commits (`type(scope): summary`).
 - The release-process contract (tag grammar, channels, who signs) is owned by the publishing
   projects — see `tools-agent-tools-restricted`'s `docs/branching-and-release.md`. This repo
