@@ -102,7 +102,41 @@ jobs:
           printf '%s\n' "${GPG_SIGNING_KEY}" | gpg --batch --quiet --import
           fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
           [ -n "${fpr}" ] || { echo "::error::no secret key after import"; exit 1; }
-          gpg --batch --armor --export "${fpr}" > RPM-GPG-KEY-dag-node
+          # Export the served public key WITH a human-readable header: a constant preamble plus the
+          # primary key's identity block (short-id line, fingerprint, uid) derived from the key
+          # itself, so the header can never drift from the key it precedes. gpg/rpm skip any text
+          # before the -----BEGIN PGP PUBLIC KEY BLOCK----- marker, so dnf/rpm import is unaffected
+          # -- this is the same layout the distro RPM-GPG-KEY files carry.
+          pub="$(gpg --batch --with-colons --list-keys "${fpr}")"
+          keylen="$(awk -F: '$1=="pub"{print $3; exit}' <<<"${pub}")"
+          algo="$(awk -F: '$1=="pub"{print $4; exit}' <<<"${pub}")"
+          keyid="$(awk -F: '$1=="pub"{print $5; exit}' <<<"${pub}")"
+          created="$(awk -F: '$1=="pub"{print $6; exit}' <<<"${pub}")"
+          fprhex="$(awk -F: '$1=="fpr"{print $10; exit}' <<<"${pub}")"
+          uid="$(awk -F: '$1=="uid"{print $10; exit}' <<<"${pub}")"
+          case "${algo}" in 1) algoc=R ;; 17) algoc=D ;; 18|22) algoc=E ;; *) algoc="?" ;; esac
+          if [[ "${created}" =~ ^[0-9]+$ ]]; then created_date="$(date -u -d "@${created}" +%Y-%m-%d)"; else created_date="${created%%T*}"; fi
+          grp() { sed -E 's/(.{4})/\1 /g; s/ $//' <<<"$1"; }                # 4-hex groups
+          fpr_spaced="$(grp "${fprhex:0:20}")  $(grp "${fprhex:20:20}")"    # double space mid-fingerprint, as gpg prints it
+          {
+            printf '%s\n' \
+              'DagNode RPM GPG Public Key' \
+              '' \
+              'This public key is used to verify RPM packages and repository' \
+              'metadata signed by DagNode. Packages and the repomd.xml index' \
+              'are signed with the signing subkey this key carries; the' \
+              'primary key is certify-only.' \
+              '' \
+              'Import this key to enable gpgcheck and repo_gpgcheck for the' \
+              'DagNode repositories.' \
+              '' \
+              'Key valid for 10 years. Questions: tools@dagnode.com' \
+              ''
+            printf 'pub   %s%s/%s %s\n' "${keylen}" "${algoc}" "${keyid: -8}" "${created_date}"
+            printf '      Key fingerprint = %s\n' "${fpr_spaced}"
+            printf 'uid                  %s\n\n' "${uid}"
+            gpg --batch --armor --export "${fpr}"
+          } > RPM-GPG-KEY-dag-node
           rpmdb="$(mktemp -d)"
           rpmkeys --dbpath "${rpmdb}" --import RPM-GPG-KEY-dag-node
           shopt -s nullglob
@@ -171,7 +205,7 @@ jobs:
               createrepo_c --database "${d}"
               printf '%s' "${GPG_SIGNING_PASSPHRASE}" \
                 | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
-                      --detach-sign --armor "${d}/repodata/repomd.xml"
+                      --digest-algo SHA256 --detach-sign --armor "${d}/repodata/repomd.xml"
               # A zero exit alone is not proof the signature was produced; assert it validates.
               gpg --batch --verify "${d}/repodata/repomd.xml.asc" "${d}/repodata/repomd.xml"
             done
