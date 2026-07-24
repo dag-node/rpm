@@ -36,7 +36,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # Always publish from main -- the released, PR-protected config (projects.txt, README, the
+      # index/select scripts). Pinned so a later change of the repo default branch cannot silently
+      # move the served source to an integration branch; the run itself is dispatch/manual, so the
+      # checked-out ref, not the triggering ref, decides what gets served.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 -- workflow + projects.txt + README only, no RPMs in git
+        with:
+          ref: main
 
       - name: Install createrepo_c + rpm + gnupg
         run: sudo apt-get update && sudo apt-get install -y createrepo-c rpm gnupg
@@ -215,6 +221,18 @@ jobs:
           # `curl -o /etc/yum.repos.d/dagnode.repo` and Ansible get_url work without hand-pasting.
           # Committed file, so a missing copy is a real error -- no `|| true`.
           cp dagnode.repo _site/
+          # Stable bootstrap install URL: copy the newest dagnode-release build to a
+          # version-independent name at the site root, so
+          # `dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm` always fetches
+          # the current bootstrap package. sort -V picks the highest version, then highest EL major;
+          # the payload is noarch and identical across majors, so one alias serves every host.
+          latest_rel="$(find _site/el -name 'dagnode-release-*.noarch.rpm' -printf '%f\n' | sort -V | tail -1)"
+          if [ -n "${latest_rel}" ]; then
+            cp -f "$(find _site/el -name "${latest_rel}" | head -1)" _site/dagnode-release-latest.noarch.rpm
+            echo "bootstrap latest alias -> ${latest_rel}"
+          else
+            echo "::warning::no dagnode-release RPM served -- dagnode-release-latest.noarch.rpm not published"
+          fi
           cp README.md _site/ 2>/dev/null || true
           # Keep the rpm.dagnode.com custom domain bound under GitHub-Actions Pages deploys.
           echo 'rpm.dagnode.com' > _site/CNAME
