@@ -211,6 +211,10 @@ jobs:
             done
           done
           cp RPM-GPG-KEY-dag-node _site/
+          # Serve the manual/config-manager .repo (gpgkey=https:// form) at a stable URL so
+          # `curl -o /etc/yum.repos.d/dagnode.repo` and Ansible get_url work without hand-pasting.
+          # Committed file, so a missing copy is a real error -- no `|| true`.
+          cp dagnode.repo _site/
           cp README.md _site/ 2>/dev/null || true
           # Keep the rpm.dagnode.com custom domain bound under GitHub-Actions Pages deploys.
           echo 'rpm.dagnode.com' > _site/CNAME
