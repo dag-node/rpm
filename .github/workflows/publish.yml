@@ -40,7 +40,7 @@ jobs:
       # index/select scripts). Pinned so a later change of the repo default branch cannot silently
       # move the served source to an integration branch; the run itself is dispatch/manual, so the
       # checked-out ref, not the triggering ref, decides what gets served.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 -- workflow + projects.txt + README only, no RPMs in git
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 -- workflow + projects.txt + README only, no RPMs in git
         with:
           ref: main
 
