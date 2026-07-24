@@ -26,7 +26,8 @@ sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo https://rpm.dagnode.com/dagnode
 sudo dnf install <package>
 ```
 
-Its contents, to inspect or paste directly:
+For reference, the served file contains (this manual form trusts the key over HTTPS; the
+bootstrap package installs a `.repo` that trusts a local key file instead):
 
 ```ini
 [dagnode]
