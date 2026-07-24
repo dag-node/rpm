@@ -18,7 +18,7 @@ FRONT = """DagNode RPM Repository - https://rpm.dagnode.com/
 
 sudo tee /etc/yum.repos.d/dagnode.repo >/dev/null <<'EOF'
 [dagnode]
-name=DagNode RPM Repository
+name=DagNode Package Repository for EL (RPMs)
 baseurl=https://rpm.dagnode.com/el/$releasever/$basearch/
 gpgkey=https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
 gpgcheck=1
