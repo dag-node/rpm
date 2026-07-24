@@ -2,4 +2,5 @@
 # publish.yml downloads every release's signed *.rpm from each and rebuilds the repo
 # statelessly (the releases are the source of truth; no RPMs are stored in this repo).
 # A '#' comment or blank line is ignored. Add a sibling tools-* repo here when it ships RPMs.
+dag-node/rpm-dagnode-release
 dag-node/tools-agent-tools-restricted
