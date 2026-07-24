@@ -81,6 +81,13 @@ sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
 rpm -q 'gpg-pubkey*' -i | grep -B2 -A4 DagNode    # confirm it landed in the rpm keyring
 ```
 
+Confirm the same fingerprint over DNS:
+
+```bash
+dig +short TXT _dagnode-gpg.dagnode.com
+# "v=dagnode-gpg1; fpr=67F42DC18BF764B42D82F14256D2F802CF9832E4"
+```
+
 **Rotation.** The primary key is long-lived — one identity across the EL-major lifecycle, as
 Rocky and Alma do — and its validity is extended in place, keeping the same fingerprint. A
 leaked CI secret burns only the subkey: the offline primary revokes it and certifies a
