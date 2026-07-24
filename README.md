@@ -1,4 +1,4 @@
-# DagNode RPM Repository
+# DagNode Package Repository for EL (RPMs)
 
 Signed DNF/YUM repository for DagNode projects, served at **https://rpm.dagnode.com/**.
 

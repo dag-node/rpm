@@ -14,7 +14,7 @@ import sys
 
 HOST = "rpm.dagnode.com"
 SKIP = {"index.html", "CNAME"}  # infra files, not repository content
-FRONT = """DagNode RPM Repository - https://rpm.dagnode.com/
+FRONT = """DagNode Package Repository for EL (RPMs) - https://rpm.dagnode.com/
 
 # Recommended -- the bootstrap package installs the repo definition and signing key:
 sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
