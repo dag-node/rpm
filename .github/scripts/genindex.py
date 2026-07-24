@@ -13,18 +13,14 @@ import os
 import sys
 
 HOST = "rpm.dagnode.com"
+# The README is served here as plaintext (anchors inert), so the index links to the rendered
+# GitHub copy for the fingerprint check and manual setup rather than to a served fragment.
+README_URL = "https://github.com/dag-node/rpm/blob/main/README.md"
 SKIP = {"index.html", "CNAME"}  # infra files, not repository content
 FRONT = """DagNode Package Repository for EL (RPMs) - https://rpm.dagnode.com/
 
-# Recommended -- the bootstrap package installs the repo definition and signing key:
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
-sudo dnf install <package>
-
-# Or configure the repository manually:
-sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo https://rpm.dagnode.com/dagnode.repo
-sudo dnf install <package>
-
-Verify the signing-key fingerprint out of band before first use (see README)."""
+# Install the repository definition and org signing key:
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm"""
 
 
 def human(size):
@@ -38,7 +34,12 @@ def human(size):
 
 def render(disp, rows, is_root):
     """Wrap listing rows in the minimal page; the root also carries the install snippet."""
-    front = f"<pre>{html.escape(FRONT)}</pre>\n<hr>\n" if is_root else ""
+    front = (
+        f"<pre>{html.escape(FRONT)}</pre>\n"
+        "<p>Verify the signing-key fingerprint out of band before first use, and find manual"
+        f' setup, in the <a href="{README_URL}#signing-key">README</a>.</p>\n'
+        "<hr>\n"
+    ) if is_root else ""
     return (
         "<!doctype html>\n"
         '<html><head><meta charset="utf-8">'
