@@ -10,7 +10,6 @@ one step, trusts the key from a local file, and carries key rotations forward as
 
 ```bash
 sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
-sudo dnf install <package>
 ```
 
 The bootstrap RPM is fetched over HTTPS and trusted on first use — verify the signing-key
@@ -23,7 +22,6 @@ Download the served `.repo` (works on dnf4/EL9 and dnf5/EL10):
 
 ```bash
 sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo https://rpm.dagnode.com/dagnode.repo
-sudo dnf install <package>
 ```
 
 For reference, the served file contains (this manual form trusts the key over HTTPS; the
