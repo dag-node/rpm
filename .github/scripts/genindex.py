@@ -16,17 +16,15 @@ HOST = "rpm.dagnode.com"
 SKIP = {"index.html", "CNAME"}  # infra files, not repository content
 FRONT = """DagNode RPM Repository - https://rpm.dagnode.com/
 
-sudo tee /etc/yum.repos.d/dagnode.repo >/dev/null <<'EOF'
-[dagnode]
-name=DagNode Package Repository for EL (RPMs)
-baseurl=https://rpm.dagnode.com/el/$releasever/$basearch/
-gpgkey=https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
-gpgcheck=1
-repo_gpgcheck=1
-enabled=1
-metadata_expire=6h
-EOF
-sudo dnf install <package>"""
+# Recommended -- the bootstrap package installs the repo definition and signing key:
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+sudo dnf install <package>
+
+# Or configure the repository manually:
+sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo https://rpm.dagnode.com/dagnode.repo
+sudo dnf install <package>
+
+Verify the signing-key fingerprint out of band before first use (see README)."""
 
 
 def human(size):

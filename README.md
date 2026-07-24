@@ -2,27 +2,51 @@
 
 Signed DNF/YUM repository for DagNode projects, served at **https://rpm.dagnode.com/**.
 
-## Use it
+## Install
+
+**Recommended — the bootstrap package.** It drops the `.repo` definition and the signing key in
+one step, trusts the key from a local file, and carries key rotations forward as an ordinary
+`dnf upgrade`:
 
 ```bash
-sudo tee /etc/yum.repos.d/dagnode.repo >/dev/null <<'EOF'
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+sudo dnf install <package>
+```
+
+The bootstrap RPM is fetched over HTTPS and trusted on first use — verify the signing-key
+fingerprint out of band (see [Signing key](#signing-key)) before installing anything from the
+repository. Source and payload: [`dag-node/rpm-dagnode-release`](https://github.com/dag-node/rpm-dagnode-release).
+
+### Configure the repository manually
+
+Download the served `.repo` (works on dnf4/EL9 and dnf5/EL10):
+
+```bash
+sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo https://rpm.dagnode.com/dagnode.repo
+sudo dnf install <package>
+```
+
+Its contents, to inspect or paste directly:
+
+```ini
 [dagnode]
 name=DagNode Package Repository for EL (RPMs)
 baseurl=https://rpm.dagnode.com/el/$releasever/$basearch/
 gpgkey=https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
 gpgcheck=1
 repo_gpgcheck=1
-enabled=1
 metadata_expire=6h
-EOF
-sudo chmod 644 /etc/yum.repos.d/dagnode.repo
-sudo dnf install <package>
+priority=10
+enabled=1
 ```
 
 One `.repo` serves every Enterprise Linux major and arch: `$releasever` selects `el/9` or
 `el/10`, `$basearch` the arch tree. `gpgcheck=1` verifies each package signature and
-`repo_gpgcheck=1` verifies the repository metadata — both against the org key at
-`/RPM-GPG-KEY-dag-node`, which `dnf` imports from the `gpgkey` URL on first use.
+`repo_gpgcheck=1` the repository metadata — both against the org key at `/RPM-GPG-KEY-dag-node`.
+The manual `.repo` imports that key over HTTPS on first install (`dnf` prompts with its
+fingerprint); unlike the bootstrap package it imports the key once and does not pick up a later
+key rotation automatically. `priority=10` lets DagNode packages win over a base repo at equal
+version — a native `dnf` option, no plugin required.
 
 ## Signing key
 
