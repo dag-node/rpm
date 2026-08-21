@@ -5,15 +5,23 @@ Signed DNF/YUM repository for [DagNode](https://github.com/dag-node/) projects, 
 ## Install
 
 ```bash
-# Recommended: install package `dagnode-release`
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+# 1. Import the org signing key — verify its fingerprint out of band first (see below)
+sudo rpm --import \
+  https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+
+# 2. Install the repository definition (package `dagnode-release`)
+sudo dnf install \
+  https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 ```
 
-Installs the `dagnode.repo` and the signing key `RPM-GPG-KEY-dag-node` in one step,
-trusts the key from a local file; carries subkey rotations forward as an ordinary `dnf upgrade`.
+`dagnode-release` is signed by the org key, so `dnf` verifies its signature before installing it —
+importing the key first (step 1) is what satisfies that check, since the package that would
+otherwise install the key has not run yet. The package then drops `dagnode.repo` and the signing
+key `RPM-GPG-KEY-dag-node` for every later `dnf install`, and carries subkey rotations forward as
+an ordinary `dnf upgrade`.
 
-The bootstrap package `dagnode-release` is fetched over HTTPS — **verify the public key
-fingerprint** on first use below and out-of-band (DNS) before installing anything from the repository:
+Both commands fetch over HTTPS — **verify the public key fingerprint** out of band (DNS) before
+importing, so the served copy never vouches for itself:
 
 ```bash
 # Confirm RPM-GPG-KEY-dag-node public key fingerprint over DNS
@@ -36,11 +44,13 @@ dig +short TXT _dagnode-gpg.dagnode.com
 
 ```bash
 # Download the served `.repo`
-sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo https://rpm.dagnode.com/dagnode.repo
+sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo \
+  https://rpm.dagnode.com/dagnode.repo
 # Verify the served key fingerprint before importing
 curl -fsSL https://rpm.dagnode.com/RPM-GPG-KEY-dag-node | gpg --show-keys
 # dnf imports it on first use (gpgkey= above); to import it into rpm yourself:
-sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+sudo rpm --import \
+  https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
 # Confirm it landed in the rpm keyring:
 rpm -q gpg-pubkey --qf '%{version}-%{release} %{summary}\n' | grep -i dagnode
 # -> cf9832e4-6a5b959c DagNode Package Signing <tools@dagnode.com> public key
