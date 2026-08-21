@@ -55,10 +55,11 @@ jobs:
       - name: Aggregate signed RPMs from project releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # History bound: keep the latest patch of each of the KEEP_MINORS most-recent MAJOR.MINOR
-          # series per project, so the served repo cannot grow without limit. Raise to retain more
-          # minors; older ones are evicted (their releases stay on GitHub, just not served here).
-          KEEP_MINORS: "10"
+          # History floor: serve the latest patch of every MAJOR.MINOR series at or above
+          # MIN_VERSION, per project. This drops the pre-integrations-split 0.6.x line while
+          # keeping every current minor (dagnode-release at v1.0.0+ sits above the floor). Raise
+          # the floor to evict more old minors; their releases stay on GitHub, just not served here.
+          MIN_VERSION: "0.11.1"
         run: |
           set -euo pipefail
           mkdir -p incoming
@@ -73,7 +74,7 @@ jobs:
             # under `set -e`. --limit is generous headroom over the retained count; gh returns
             # newest-first, so the recent minors we keep are always covered.
             all_tags="$(gh release list --repo "${proj}" --limit 1000 --json tagName -q '.[].tagName')"
-            kept_tags="$(printf '%s\n' "${all_tags}" | python3 .github/scripts/select-releases.py "${KEEP_MINORS}")"
+            kept_tags="$(printf '%s\n' "${all_tags}" | python3 .github/scripts/select-releases.py "${MIN_VERSION}")"
             for tag in ${kept_tags}; do
               # Only releases that actually carry a *.rpm asset are downloaded. A release with no
               # rpm asset is normal (e.g. a docs-only tag) and skipped; a download that then FAILS

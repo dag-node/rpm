@@ -17,10 +17,19 @@ HOST = "rpm.dagnode.com"
 # GitHub copy for the fingerprint check and manual setup rather than to a served fragment.
 README_URL = "https://github.com/dag-node/rpm/blob/main/README.md"
 SKIP = {"index.html", "CNAME"}  # infra files, not repository content
-FRONT = """DagNode Package Repository for EL (RPMs) - https://rpm.dagnode.com/
-
-# Install the repository definition and org signing key:
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm"""
+# The root snippet is a fixed HTML literal (no user-controlled names at the site root): the
+# "Verify" comment links to the rendered README for the out-of-band fingerprint check, then the
+# two commands import the org key before installing the bootstrap package. dnf verifies that
+# package's own signature, so the key must be imported first for the install to succeed.
+FRONT_HTML = (
+    "DagNode Package Repository for EL (RPMs) - https://rpm.dagnode.com/\n"
+    "\n"
+    f'# <a href="{README_URL}#signing-key">Verify</a> the signing-key fingerprint out of band before first use:\n'
+    "sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node\n"
+    "\n"
+    "# Install the repository:\n"
+    "sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm"
+)
 
 
 def human(size):
@@ -34,12 +43,7 @@ def human(size):
 
 def render(disp, rows, is_root):
     """Wrap listing rows in the minimal page; the root also carries the install snippet."""
-    front = (
-        f"<pre>{html.escape(FRONT)}</pre>\n"
-        "<p>Verify the signing-key fingerprint out of band before first use, and find manual"
-        f' setup, in the <a href="{README_URL}#signing-key">README</a>.</p>\n'
-        "<hr>\n"
-    ) if is_root else ""
+    front = f"<pre>{FRONT_HTML}</pre>\n<hr>\n" if is_root else ""
     return (
         "<!doctype html>\n"
         '<html><head><meta charset="utf-8">'
