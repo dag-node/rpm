@@ -12,8 +12,9 @@ script headers — this file is the invariants and conventions an agent MUST hon
   Never RPMs, never a key copy: the served public key is exported from the signing secret on
   every run, so a committed copy could only drift from what actually signs.
 - **Only final `vX.Y.Z` tags are served.** `select-releases.py` filters tags to
-  `^v\d+\.\d+\.\d+$` and bounds history (latest patch of the `KEEP_MINORS` newest minors per
-  project). Prereleases (`-rc.N`) never reach the repository.
+  `^v\d+\.\d+\.\d+$` and bounds history by a version floor (latest patch of every MAJOR.MINOR
+  series at or above `MIN_VERSION`, per project). Prereleases (`-rc.N`) never reach the
+  repository.
 - **Verification is fail-closed.** Every downloaded package must show a validating
   `rpmkeys -Kv` signature line against the org key (an unsigned package exits 0 — the exit
   code alone proves nothing); a single failure drops that package with a warning, but if
