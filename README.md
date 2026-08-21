@@ -212,11 +212,12 @@ metadata with `createrepo_c`, detached-signs `repomd.xml`, and deploys via GitHu
 `rpm-repository` concurrency group serializes concurrent releases. Manual rebuild/backfill:
 **Actions → Publish RPM repository → Run workflow**.
 
-History is bounded so the repo cannot grow without limit: for each package it serves the latest
-patch of every `MAJOR.MINOR` series, for the 10 most-recent minors (`KEEP_MINORS` in
-`publish.yml`). Superseded patches and older minors are evicted from the served repo — their
-GitHub Releases remain, so raising the bound or a manual rebuild restores them. Nothing is ever
-deleted from a project's releases; this repo only chooses what to serve.
+History is bounded by a version floor so the repo does not carry retired lines: for each package
+it serves the latest patch of every `MAJOR.MINOR` series at or above `MIN_VERSION` (in
+`publish.yml`, currently `0.11.1` — dropping the pre-integrations-split `0.6.x` packages).
+Superseded patches and versions below the floor are not served — their GitHub Releases remain, so
+lowering the floor or a manual rebuild restores them. Nothing is ever deleted from a project's
+releases; this repo only chooses what to serve.
 
 ## Licensing
 

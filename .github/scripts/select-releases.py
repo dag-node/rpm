@@ -4,43 +4,56 @@
 Reads release tags (one per line) on stdin and prints the tags to keep, newest first. Retention,
 applied per project by publish.yml:
 
-  * For each MAJOR.MINOR series keep only the latest MAJOR.MINOR.PATCH -- patch releases are
-    bugfixes, so an older patch of the same minor is superseded and dropped.
-  * Then keep the KEEP_MINORS most-recent minor series and evict older ones.
+  * Discard any tag below MIN_VERSION (default v0.11.1). This drops the pre-integrations-split
+    line (the 0.6.x packages) that only clutters the repo and is no longer recommended, without
+    touching projects that version independently -- dagnode-release (v1.0.0+) sits above the
+    floor and is kept.
+  * Of the tags at or above the floor, for each MAJOR.MINOR series keep only the latest
+    MAJOR.MINOR.PATCH -- patch releases are bugfixes, so an older patch of the same minor is
+    superseded and dropped. Every minor at or above the floor is kept (no rolling window), so a
+    client can pin or downgrade across the whole retained range.
 
-The result is at most KEEP_MINORS versions per package name, so history cannot balloon over time,
-while a client can still pin or downgrade across the recent minors. Tags that are not
-vMAJOR.MINOR.PATCH are ignored. Signature verification is a separate, later step: an unsigned
-selected package is dropped there, not here.
+Tags that are not vMAJOR.MINOR.PATCH are ignored. Signature verification is a separate, later
+step: an unsigned selected package is dropped there, not here.
 
 Usage:
-    gh release list ... | select-releases.py [KEEP_MINORS]   # KEEP_MINORS default 10
+    gh release list ... | select-releases.py [MIN_VERSION]   # MIN_VERSION default 0.11.1
 """
 import re
 import sys
 
-TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+TAG = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+DEFAULT_MIN = "0.11.1"
 
 
-def select(tags, keep_minors):
-    """Return the retained tags (newest first): the latest patch of each of the KEEP_MINORS
-    most-recent MAJOR.MINOR series."""
+def parse(spec):
+    """Parse vMAJOR.MINOR.PATCH (leading v optional) into an (int, int, int) tuple, or None."""
+    matched = TAG.match(spec.strip())
+    return tuple(int(g) for g in matched.groups()) if matched else None
+
+
+def select(tags, min_version):
+    """Return the retained tags (newest first): the latest patch of every MAJOR.MINOR series at
+    or above min_version."""
     latest = {}  # (major, minor) -> (major, minor, patch), the highest patch seen for that minor
     for tag in tags:
-        matched = TAG.match(tag.strip())
-        if not matched:
+        version = parse(tag)
+        if version is None or version < min_version:
             continue
-        major, minor, patch = (int(g) for g in matched.groups())
+        major, minor, patch = version
         current = latest.get((major, minor))
         if current is None or patch > current[2]:
-            latest[(major, minor)] = (major, minor, patch)
-    kept = sorted(latest.values(), reverse=True)[:keep_minors]
+            latest[(major, minor)] = version
+    kept = sorted(latest.values(), reverse=True)
     return [f"v{major}.{minor}.{patch}" for major, minor, patch in kept]
 
 
 def main():
-    keep_minors = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    for tag in select(sys.stdin.read().splitlines(), keep_minors):
+    spec = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MIN
+    min_version = parse(spec)
+    if min_version is None:
+        sys.exit(f"select-releases: invalid MIN_VERSION {spec!r} (want MAJOR.MINOR.PATCH)")
+    for tag in select(sys.stdin.read().splitlines(), min_version):
         print(tag)
 
 
