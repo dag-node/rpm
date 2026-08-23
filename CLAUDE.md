@@ -40,6 +40,11 @@ what it *did*; the conventions after them say what the operator does when a gate
   `published/skipped` signature count and the served tree are printed unconditionally, and a
   dropped package always emits `::warning::`. No verification is wrapped in `|| true` and no
   check output is silenced: the log is the only evidence that the fail-closed gates ran at all.
+- **The deploy is verified from the served side.** After the Pages deploy the run re-fetches
+  `https://rpm.dagnode.com/`, requiring every `repomd.xml` to match the digest it just built and
+  every `repomd.xml.asc` to gpg-verify against it, retrying within one bounded budget while the
+  CDN propagates. The check imports the public key only and can report, never republish; a
+  mismatch fails the run.
 - **Client-side verification is the last line, not this workflow.** Everything served must be
   checkable without trusting this repo — packages signed by the org key, `repomd.xml.asc`
   beside every `repomd.xml`, the public key served for out-of-band comparison. Never publish
