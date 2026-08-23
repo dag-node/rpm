@@ -8,6 +8,9 @@ script headers — this file is the invariants and conventions an agent MUST hon
 
 ## Invariants
 
+The invariants below bound what a run *can* do; the run log is the only plane that observes
+what it *did*; the conventions after them say what the operator does when a gate trips.
+
 - **`main` holds config only** — the workflow, its scripts, `README.md`, `projects.txt`.
   Never RPMs, never a key copy: the served public key is exported from the signing secret on
   every run, so a committed copy could only drift from what actually signs.
@@ -29,6 +32,18 @@ script headers — this file is the invariants and conventions an agent MUST hon
   releases queue instead of racing the Pages deploy. A rebuild is idempotent: any dispatch
   means "rebuild everything from the releases".
 - **Actions are pinned to full-length commit SHAs**; Dependabot maintains the pins via PRs.
+- **Least privilege is a ceiling, not a starting point.** The job holds `contents:read` +
+  `pages:write` + `id-token:write`, reads public releases with its own `GITHUB_TOKEN`, and
+  writes nothing outside `_site`. It never takes a cross-repo or long-lived write token;
+  widening the permission block is an operator decision, never a fix made in passing.
+- **Every run is self-reporting.** The retained tags, the aggregated packages, the
+  `published/skipped` signature count and the served tree are printed unconditionally, and a
+  dropped package always emits `::warning::`. No verification is wrapped in `|| true` and no
+  check output is silenced: the log is the only evidence that the fail-closed gates ran at all.
+- **Client-side verification is the last line, not this workflow.** Everything served must be
+  checkable without trusting this repo — packages signed by the org key, `repomd.xml.asc`
+  beside every `repomd.xml`, the public key served for out-of-band comparison. Never publish
+  an artifact a `gpgcheck=1 repo_gpgcheck=1` client could not verify on its own.
 
 ## Working conventions
 
@@ -37,6 +52,10 @@ script headers — this file is the invariants and conventions an agent MUST hon
   directly — no branch per fix — while larger features branch from it as
   `feature/RPM-<yyMMdd>-<name>` and merge back to `develop` first. The operator merges and
   pushes — agents do neither.
+- **A tripped gate is fixed upstream, never routed around.** An abort, or a package counted
+  `skipped`, means a release is wrong (unsigned, wrong key) — the response is to re-release
+  from the project. Relaxing the check, bypassing the gate, or hand-uploading into the served
+  tree are not available remedies; the tree is only ever restored by a rebuild from releases.
 - Commit messages follow Conventional Commits (`type(scope): summary`).
 - The release-process contract (tag grammar, channels, who signs) is owned by the publishing
   projects — see `tools-agent-tools-restricted`'s `docs/branching-and-release.md`. This repo
