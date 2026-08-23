@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Check the publish scripts before they can reach main.
 #
 # publish.yml only ever runs on main, so until this existed a broken script was first executed

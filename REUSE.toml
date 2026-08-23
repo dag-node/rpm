@@ -1,0 +1,35 @@
+# REUSE (https://reuse.software) annotations for paths that carry no SPDX header of their own.
+#
+# Every source file states its own licence in a one-line `SPDX-License-Identifier` header. The
+# COPYRIGHT holder is declared here instead of in each file, so it is single-sourced: a file added
+# later inherits it with nothing to remember, and the year is one line to update rather than a
+# tree-wide sweep. `precedence = "aggregate"` means a file's own header wins where it has one and
+# these annotations only fill the gaps.
+#
+# This repository is MIT, not the AGPL-3.0-only of the projects it serves: it holds only the
+# packaging and distribution machinery -- the same category as those projects' own MIT-licensed
+# .spec file -- and its one reusable artifact is the publish workflow. The licence of a served
+# package is its own and is unaffected by this file; see the README's Licensing section.
+#
+# The paths below are those where a header would be noise rather than information: prose, licence
+# texts, dotfiles, config, and `dagnode.repo`, which is copied verbatim onto user systems as
+# /etc/yum.repos.d/dagnode.repo where a licence comment would be clutter.
+
+version = 1
+SPDX-PackageName = "dagnode-rpm"
+SPDX-PackageDownloadLocation = "https://github.com/dag-node/rpm"
+
+# Catch-all: the maintainer's own work.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "MIT"
+
+# The root LICENSE is the MIT text itself, kept at the top level for GitHub's licence detection;
+# LICENSES/ holds the REUSE-standard copy.
+[[annotations]]
+path = ["LICENSE", "LICENSES/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "MIT"

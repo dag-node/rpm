@@ -12,7 +12,8 @@ The invariants below bound what a run *can* do; the run log is the only plane th
 what it *did*; the conventions after them say what the operator does when a gate trips.
 
 - **`main` holds config only** — the workflows, their scripts and tests, `README.md`,
-  `projects.txt`. Never RPMs, never a key copy: the served public key is exported from the signing secret on
+  `projects.txt`, and the licence metadata (`LICENSE`, `LICENSES/`, `REUSE.toml`).
+  Never RPMs, never a key copy: the served public key is exported from the signing secret on
   every run, so a committed copy could only drift from what actually signs.
 - **Only final `vX.Y.Z` tags are served.** `select-releases.py` filters tags to
   `^v\d+\.\d+\.\d+$` and bounds history by a version floor (latest patch of every MAJOR.MINOR
@@ -66,6 +67,10 @@ what it *did*; the conventions after them say what the operator does when a gate
   `skipped`, means a release is wrong (unsigned, wrong key) — the response is to re-release
   from the project. Relaxing the check, bypassing the gate, or hand-uploading into the served
   tree are not available remedies; the tree is only ever restored by a rebuild from releases.
+- **This repo is MIT; the packages it serves are not.** Source files carry an
+  `SPDX-License-Identifier: MIT` header and `REUSE.toml` single-sources the copyright holder.
+  A served package keeps its own upstream licence (mostly `AGPL-3.0-only`) — the two never mix,
+  and nothing here relicenses anything it publishes.
 - Commit messages follow Conventional Commits (`type(scope): summary`).
 - The release-process contract (tag grammar, channels, who signs) is owned by the publishing
   projects — see `tools-agent-tools-restricted`'s `docs/branching-and-release.md`. This repo

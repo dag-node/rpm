@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Generate utilitarian autoindex pages for the served RPM tree.
 
 Walks the site root given as argv[1] (default _site) and writes an index.html into every
