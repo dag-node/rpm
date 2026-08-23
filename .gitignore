@@ -3,3 +3,5 @@
 # Publish-workflow scratch (assembled per run, never committed).
 /incoming/
 /_site/
+# Python bytecode from the workflow scripts (never committed).
+__pycache__/
