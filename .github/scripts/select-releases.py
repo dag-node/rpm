@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Select which release tags to publish, bounding the served repository's history.
 
 Reads release tags (one per line) on stdin and prints the tags to keep, newest first. Retention,

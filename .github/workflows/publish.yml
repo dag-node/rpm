@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Publish the signed DagNode DNF repository to https://rpm.dagnode.com/.
 #
 # This is the ONLY writer of the repository. Projects (tools-agent-tools-restricted and

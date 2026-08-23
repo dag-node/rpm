@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 #
 # Tests for verify-deploy.sh against the ALREADY-PUBLISHED repository.
 #

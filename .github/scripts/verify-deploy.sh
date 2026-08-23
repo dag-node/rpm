@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 #
 # Verify that the LIVE site serves exactly the tree a publish run just built.
 #
