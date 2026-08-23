@@ -11,8 +11,8 @@ script headers — this file is the invariants and conventions an agent MUST hon
 The invariants below bound what a run *can* do; the run log is the only plane that observes
 what it *did*; the conventions after them say what the operator does when a gate trips.
 
-- **`main` holds config only** — the workflow, its scripts, `README.md`, `projects.txt`.
-  Never RPMs, never a key copy: the served public key is exported from the signing secret on
+- **`main` holds config only** — the workflows, their scripts and tests, `README.md`,
+  `projects.txt`. Never RPMs, never a key copy: the served public key is exported from the signing secret on
   every run, so a committed copy could only drift from what actually signs.
 - **Only final `vX.Y.Z` tags are served.** `select-releases.py` filters tags to
   `^v\d+\.\d+\.\d+$` and bounds history by a version floor (latest patch of every MAJOR.MINOR
@@ -40,6 +40,11 @@ what it *did*; the conventions after them say what the operator does when a gate
   `published/skipped` signature count and the served tree are printed unconditionally, and a
   dropped package always emits `::warning::`. No verification is wrapped in `|| true` and no
   check output is silenced: the log is the only evidence that the fail-closed gates ran at all.
+- **CI cannot publish.** `ci.yml` runs the scripts on every branch and PR under `contents: read`
+  with no `pages:`/`id-token:` permission and no signing secret, so a script under test cannot
+  reach the served repository however wrong it is. `test-verify-deploy.sh` exercises the monitoring
+  plane against the already-published site read-only, and must show each failure mode still failing
+  — a verifier that cannot fail is not a verifier.
 - **The deploy is verified from the served side.** After the Pages deploy the run re-fetches
   `https://rpm.dagnode.com/`, requiring every `repomd.xml` to match the digest it just built and
   every `repomd.xml.asc` to gpg-verify against it, retrying within one bounded budget while the
