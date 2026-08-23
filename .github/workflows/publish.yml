@@ -254,83 +254,12 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
 
-      # Post-deploy monitoring plane: prove the LIVE site serves exactly the tree this run built,
-      # observed from the client side rather than from the build side. deploy-pages returns once
-      # the deployment record is created, not once every CDN edge serves the new bytes, so each
-      # fetch retries against a shared propagation budget instead of a fixed sleep -- a stale edge
-      # is a slow success, not a failure. The check is public-key only (the tmpfs signing keyring
-      # was wiped two steps ago): it does what a `repo_gpgcheck=1` client does and can only
-      # report, never republish. A mismatch fails the run so the operator sees it; the remedy is
-      # another rebuild, never a hand-upload into the served tree.
+      # Post-deploy monitoring plane: every other gate in this workflow runs on the build side,
+      # so this is what observes the result -- it re-fetches the deployed site and proves it serves
+      # exactly the tree just built, retrying while the CDN propagates. It verifies with the public
+      # key only and cannot remediate: a failure raises the run, and the remedy is another rebuild.
+      # Timing, trust model and failure semantics are in the script header.
       - name: Verify the deployed site
         env:
           SITE_URL: ${{ steps.deploy.outputs.page_url }}
-        run: |
-          set -euo pipefail
-          base="${SITE_URL%/}"
-          # Fresh public-only keyring: the GNUPGHOME exported earlier pointed at the tmpfs keyring
-          # that the build step trap-removed, and no secret is needed to verify a detached signature.
-          GNUPGHOME="$(mktemp -d)"; export GNUPGHOME
-          gpg --batch --quiet --import _site/RPM-GPG-KEY-dag-node
-          # One budget for the whole check, so a tree that never propagates cannot stretch the job
-          # by (files x per-file timeout). Exhausting it fails every remaining check immediately.
-          deadline=$((SECONDS + 300))
-          # curl's own --retry covers transient transport failures (5xx, timeouts); a 404 or a stale
-          # body is the propagation case and belongs to the outer loops, which know what to expect.
-          fetch() {
-            curl -fsL --max-time 60 --retry 3 \
-                 -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$1" -o "$2" 2>/dev/null
-          }
-          # Retry a URL until it byte-matches the file this run built, or the budget runs out.
-          expect_match() {
-            local url="$1" want_file="$2" want got
-            want="$(sha256sum "${want_file}" | cut -d' ' -f1)"
-            while :; do
-              if fetch "${url}" served.bin && got="$(sha256sum served.bin | cut -d' ' -f1)" \
-                 && [ "${got}" = "${want}" ]; then
-                echo "  ok    ${url}"; return 0
-              fi
-              if [ "${SECONDS}" -ge "${deadline}" ]; then
-                echo "::error::${url} does not match this run's tree (want ${want}, got ${got:-<unfetched>})"
-                return 1
-              fi
-              echo "  wait  ${url} (not propagated yet)"
-              sleep 10
-            done
-          }
-          # Retry the detached signature until it validates against the repomd.xml this run signed.
-          # A leftover .asc from the previous deploy fails this and keeps retrying, which is the point.
-          verify_asc() {
-            local url="$1" xml="$2"
-            while :; do
-              if fetch "${url}" served.asc && gpg --batch --verify served.asc "${xml}" 2>/dev/null; then
-                echo "  ok    ${url}"; return 0
-              fi
-              if [ "${SECONDS}" -ge "${deadline}" ]; then
-                echo "::error::${url} is missing or does not sign the deployed repomd.xml"
-                return 1
-              fi
-              echo "  wait  ${url} (not propagated yet)"
-              sleep 10
-            done
-          }
-          # Collect every failure before exiting: one broken tree must not hide the others.
-          fail=0
-          expect_match "${base}/RPM-GPG-KEY-dag-node" _site/RPM-GPG-KEY-dag-node || fail=1
-          for major in 9 10; do
-            for arch in x86_64 aarch64; do
-              d="el/${major}/${arch}/repodata"
-              expect_match "${base}/${d}/repomd.xml"     "_site/${d}/repomd.xml"     || fail=1
-              verify_asc   "${base}/${d}/repomd.xml.asc" "_site/${d}/repomd.xml"     || fail=1
-            done
-          done
-          # The documented one-line install fetches this alias; if it was built it must be served.
-          if [ -f _site/dagnode-release-latest.noarch.rpm ]; then
-            expect_match "${base}/dagnode-release-latest.noarch.rpm" \
-                         _site/dagnode-release-latest.noarch.rpm || fail=1
-          fi
-          if [ "${fail}" -ne 0 ]; then
-            echo "::error::${base} does not serve this run's tree -- re-run the publish to rebuild; do not hand-upload"
-            exit 1
-          fi
-          echo "deployed site verified against the built tree"
+        run: bash .github/scripts/verify-deploy.sh "${SITE_URL}" _site
