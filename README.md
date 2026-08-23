@@ -231,5 +231,14 @@ releases; this repo only chooses what to serve.
 
 ## Licensing
 
-The repository infrastructure and metadata do not define package licensing. Each RPM retains
-its own upstream license — see `rpm -qi <package>`.
+Two separate things, easily confused:
+
+**The packages served here** keep their own licenses. This repository's infrastructure and
+metadata do not define package licensing — each RPM retains its upstream license, see
+`rpm -qi <package>`. Most of what is served is `AGPL-3.0-only`; nothing below changes that.
+
+**This repository itself** — the publish workflow, its scripts and tests, the docs — is
+`MIT` (see `LICENSE`). It holds only packaging and distribution machinery, and the workflow
+is the one piece worth reusing, so it is licensed to permit that. Every source file carries an
+`SPDX-License-Identifier` header; `REUSE.toml` single-sources the copyright holder and covers
+the paths where a header would be noise.

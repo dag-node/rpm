@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: MIT
+# Check the publish scripts before they can reach main.
+#
+# publish.yml only ever runs on main, so until this existed a broken script was first executed
+# against the live repository. This runs the same scripts on every branch and pull request,
+# READ-ONLY: it holds contents:read and no `pages:`/`id-token:` permission, so it cannot deploy,
+# and it never signs anything -- no signing secret is exposed to it. The verify suite exercises
+# the monitoring plane against the already-published site, which is the only way to cover the
+# HTTPS/Pages/real-signature surface that a local fixture cannot reproduce.
+name: CI
+
+on:
+  push:
+    branches: [develop, 'feature/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Read the checkout, nothing else. The absence of pages:/id-token: here is the guarantee that a CI
+# run cannot modify the served repository, however wrong a script under test turns out to be.
+permissions:
+  contents: read
+
+# Supersede a superseded push: unlike publish.yml, nothing here must survive to completion.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # Static checks first: a syntax error or an unquoted expansion should not cost a network run.
+      - name: Lint scripts and workflows
+        run: |
+          set -euo pipefail
+          shellcheck .github/scripts/*.sh
+          python3 -m py_compile .github/scripts/*.py
+          python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
+                  .github/workflows/*.yml
+          echo "lint ok"
+
+      # The embedded run: blocks in publish.yml never reach shellcheck, so at least assert they
+      # parse -- the class of error that previously only surfaced mid-publish.
+      - name: Parse the publish workflow's inline scripts
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "${RUNNER_TEMP}/steps.txt"
+          import yaml
+          steps = yaml.safe_load(open('.github/workflows/publish.yml'))['jobs']['publish']['steps']
+          print('\n\0'.join(s['run'] for s in steps if 'run' in s))
+          PY
+          n=0
+          while IFS= read -r -d '' body; do
+            printf '%s' "${body}" | bash -n || { echo "::error::inline run: block failed to parse"; exit 1; }
+            n=$((n+1))
+          done < "${RUNNER_TEMP}/steps.txt"
+          echo "parsed ${n} inline run: blocks"
+
+      # End-to-end against the live site: real HTTPS, real Pages, real detached signatures. Proves
+      # both that the verifier passes on a good tree and that each mutation still makes it fail.
+      - name: Verify the monitoring plane against the published repository
+        run: bash .github/scripts/test-verify-deploy.sh https://rpm.dagnode.com/

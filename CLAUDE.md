@@ -11,7 +11,8 @@ script headers — this file is the invariants and conventions an agent MUST hon
 The invariants below bound what a run *can* do; the run log is the only plane that observes
 what it *did*; the conventions after them say what the operator does when a gate trips.
 
-- **`main` holds config only** — the workflow, its scripts, `README.md`, `projects.txt`.
+- **`main` holds config only** — the workflows, their scripts and tests, `README.md`,
+  `projects.txt`, and the licence metadata (`LICENSE`, `LICENSES/`, `REUSE.toml`).
   Never RPMs, never a key copy: the served public key is exported from the signing secret on
   every run, so a committed copy could only drift from what actually signs.
 - **Only final `vX.Y.Z` tags are served.** `select-releases.py` filters tags to
@@ -40,6 +41,11 @@ what it *did*; the conventions after them say what the operator does when a gate
   `published/skipped` signature count and the served tree are printed unconditionally, and a
   dropped package always emits `::warning::`. No verification is wrapped in `|| true` and no
   check output is silenced: the log is the only evidence that the fail-closed gates ran at all.
+- **CI cannot publish.** `ci.yml` runs the scripts on every branch and PR under `contents: read`
+  with no `pages:`/`id-token:` permission and no signing secret, so a script under test cannot
+  reach the served repository however wrong it is. `test-verify-deploy.sh` exercises the monitoring
+  plane against the already-published site read-only, and must show each failure mode still failing
+  — a verifier that cannot fail is not a verifier.
 - **The deploy is verified from the served side.** After the Pages deploy the run re-fetches
   `https://rpm.dagnode.com/`, requiring every `repomd.xml` to match the digest it just built and
   every `repomd.xml.asc` to gpg-verify against it, retrying within one bounded budget while the
@@ -61,6 +67,10 @@ what it *did*; the conventions after them say what the operator does when a gate
   `skipped`, means a release is wrong (unsigned, wrong key) — the response is to re-release
   from the project. Relaxing the check, bypassing the gate, or hand-uploading into the served
   tree are not available remedies; the tree is only ever restored by a rebuild from releases.
+- **This repo is MIT; the packages it serves are not.** Source files carry an
+  `SPDX-License-Identifier: MIT` header and `REUSE.toml` single-sources the copyright holder.
+  A served package keeps its own upstream licence (mostly `AGPL-3.0-only`) — the two never mix,
+  and nothing here relicenses anything it publishes.
 - Commit messages follow Conventional Commits (`type(scope): summary`).
 - The release-process contract (tag grammar, channels, who signs) is owned by the publishing
   projects — see `tools-agent-tools-restricted`'s `docs/branching-and-release.md`. This repo
