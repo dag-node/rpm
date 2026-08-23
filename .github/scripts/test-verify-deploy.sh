@@ -35,25 +35,46 @@ passed=0; failed=0
 # ten minutes of retrying before they do.
 export VERIFY_BUDGET_SECONDS=4 VERIFY_POLL_SECONDS=2
 
+# Same identification as verify-deploy.sh: the site sits behind a CDN/proxy whose bot protection
+# can block unattributed automated traffic.
+ua="dagnode-rpm-verify/1 (+https://github.com/dag-node/rpm)"
+
+# Fetch or explain why not. A bare `curl -f` reports "403" and nothing else, which is how a proxy
+# block first reached us looking like an unexplained failure.
+get() {
+  local url="$1" dest="$2" code
+  code="$(curl -sSL -A "${ua}" --max-time 60 --retry 3 \
+               -D "${work}/hdr" -w '%{http_code}' -o "${dest}" "${url}" 2>/dev/null)" || code=000
+  [ "${code}" = "200" ] && return 0
+  echo "FATAL: ${url} -> HTTP ${code}"
+  grep -iE '^(server|cf-ray|cf-mitigated):' "${work}/hdr" 2>/dev/null | tr -d '\r' | sed 's/^/       /'
+  if [ "${code}" = "403" ]; then
+    echo "       A 403 here is the proxy in front of the site refusing an automated client, not a"
+    echo "       missing file. dnf reaches this repository the same way, so allow this agent (or"
+    echo "       package-manager traffic generally) in the proxy's bot-protection rules."
+  fi
+  return 1
+}
+
 # Directory entries from a genindex.py page, so the mirrored tree follows what is actually served
 # rather than a hard-coded list of EL majors.
 list_dirs() {
-  curl -fsS --max-time 30 "$1" | grep -oE 'href="[^"]+/"' | sed 's/^href="//; s/\/"$//' \
-    | grep -vE '^\.\.$'
+  get "$1" "${work}/idx" || exit 1
+  grep -oE 'href="[^"]+/"' "${work}/idx" | sed 's/^href="//; s/\/"$//' | grep -vE '^\.\.$'
 }
 
 echo "== mirroring ${site} =="
 mkdir -p "${mirror}"
-curl -fsS --max-time 30 -o "${mirror}/RPM-GPG-KEY-dag-node" "${site}/RPM-GPG-KEY-dag-node"
-curl -fsS --max-time 60 -o "${mirror}/dagnode-release-latest.noarch.rpm" \
-     "${site}/dagnode-release-latest.noarch.rpm" || echo "  (no bootstrap alias served)"
+get "${site}/RPM-GPG-KEY-dag-node" "${mirror}/RPM-GPG-KEY-dag-node" || exit 1
+get "${site}/dagnode-release-latest.noarch.rpm" "${mirror}/dagnode-release-latest.noarch.rpm" \
+  || echo "  (no bootstrap alias served)"
 trees=0
 for major in $(list_dirs "${site}/el/"); do
   for arch in $(list_dirs "${site}/el/${major}/"); do
     [ "${arch}" = "repodata" ] && continue
     d="${mirror}/el/${major}/${arch}/repodata"; mkdir -p "${d}"
-    curl -fsS --max-time 30 -o "${d}/repomd.xml"     "${site}/el/${major}/${arch}/repodata/repomd.xml"
-    curl -fsS --max-time 30 -o "${d}/repomd.xml.asc" "${site}/el/${major}/${arch}/repodata/repomd.xml.asc"
+    get "${site}/el/${major}/${arch}/repodata/repomd.xml"     "${d}/repomd.xml"     || exit 1
+    get "${site}/el/${major}/${arch}/repodata/repomd.xml.asc" "${d}/repomd.xml.asc" || exit 1
     trees=$((trees+1)); echo "  el/${major}/${arch}"
   done
 done

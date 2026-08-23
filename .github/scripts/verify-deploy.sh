@@ -46,6 +46,11 @@ gpg --batch --with-colons --list-keys | grep -q '^fpr:' \
 
 # Propagation budget and poll interval, overridable so the test suite can drive the timeout paths
 # in seconds rather than minutes. Defaults are what a real publish run uses.
+# Identify the checker: the served site sits behind a CDN/proxy whose bot protection can block
+# unattributed automated traffic, and a named agent is what an allow-rule and a security-event
+# search can key on. It is not a credential -- everything fetched here is public and signed.
+ua="dagnode-rpm-verify/1 (+https://github.com/dag-node/rpm)"
+
 deadline=$((SECONDS + ${VERIFY_BUDGET_SECONDS:-600}))
 poll="${VERIFY_POLL_SECONDS:-10}"
 why=""; http_code=""; reached=0
@@ -55,9 +60,9 @@ why=""; http_code=""; reached=0
 # evidence of whether the site was 404, unresolvable, or refusing TLS.
 fetch() {
   local rc=0
-  http_code="$(curl -fsSL --max-time 60 --retry 3 \
+  http_code="$(curl -fsSL --max-time 60 --retry 3 -A "${ua}" \
                     -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
-                    -w '%{http_code}' -o "$2" "$1" 2>"${work}/curl.err")" || rc=$?
+                    -D "${work}/hdr" -w '%{http_code}' -o "$2" "$1" 2>"${work}/curl.err")" || rc=$?
   [ "${rc}" -eq 0 ] && reached=1
   return "${rc}"
 }
@@ -69,7 +74,15 @@ curl_why() {
   msg="$(tr '\n' ' ' < "${work}/curl.err" | sed 's/  */ /g; s/ *$//')"
   case "${rc}" in
     6|7)      echo "cannot reach the host (curl ${rc}): ${msg:-DNS or connect failure}" ;;
-    22)       echo "HTTP ${http_code} (curl 22): ${msg:-not served yet?}" ;;
+    22)
+      # 403 from a proxy in front of the site is bot protection, not a missing file -- and it
+      # reaches package managers the same way, so name it rather than leave it as "not served yet".
+      local ray; ray="$(grep -i '^cf-ray:' "${work}/hdr" 2>/dev/null | tr -d '\r' | tail -1)"
+      case "${http_code}" in
+        403) echo "HTTP 403 -- blocked before reaching the site (bot protection?); ${ray:-no cf-ray}" ;;
+        404) echo "HTTP 404 -- not served yet" ;;
+        *)   echo "HTTP ${http_code} (curl 22): ${msg:-unexpected status}" ;;
+      esac ;;
     28)       echo "timed out (curl 28): ${msg}" ;;
     35|60|77) echo "TLS failure (curl ${rc}): ${msg}" ;;
     *)        echo "fetch failed (curl ${rc}): ${msg}" ;;
