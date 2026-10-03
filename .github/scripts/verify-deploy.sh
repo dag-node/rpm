@@ -126,9 +126,10 @@ await() {
   done
 }
 
-# Verify the trees this run actually built, so a new EL major is covered the moment the build
-# step emits it -- no second list of majors to keep in sync with publish.yml.
-mapfile -t repomds < <(find "${site_dir}/el" -path '*/repodata/repomd.xml' | sort)
+# Verify the trees this run actually built, whatever family (el/, fedora/) they sit under, so a
+# new tree is covered the moment the build step emits it -- no second list of trees to keep in
+# sync with publish.yml.
+mapfile -t repomds < <(find "${site_dir}" -path '*/repodata/repomd.xml' | sort)
 [ "${#repomds[@]}" -gt 0 ] \
   || { echo "::error::no repomd.xml in ${site_dir} -- the build produced nothing to verify"; exit 1; }
 
@@ -140,11 +141,13 @@ for xml in "${repomds[@]}"; do
   await "${base}/${rel}"     probe_match "${xml}" || fail=1
   await "${base}/${rel}.asc" probe_asc   "${xml}" || fail=1
 done
-# The documented one-line install fetches this alias; if it was built it must be served.
-if [ -f "${site_dir}/dagnode-release-latest.noarch.rpm" ]; then
-  await "${base}/dagnode-release-latest.noarch.rpm" \
-        probe_match "${site_dir}/dagnode-release-latest.noarch.rpm" || fail=1
-fi
+# The documented one-line installs fetch these aliases (the site root for EL, one in each family
+# directory); each one that was built must be served.
+for alias in "${site_dir}"/dagnode-release-latest.noarch.rpm "${site_dir}"/*/dagnode-release-latest.noarch.rpm; do
+  [ -f "${alias}" ] || continue
+  rel="${alias#"${site_dir}"/}"
+  await "${base}/${rel}" probe_match "${alias}" || fail=1
+done
 
 if [ "${fail}" -ne 0 ]; then
   # Not one byte was fetched: the monitoring plane could not observe the site at all, which says
