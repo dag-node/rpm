@@ -58,7 +58,8 @@ get() {
 }
 
 # Directory entries from a genindex.py page, so the mirrored tree follows what is actually served
-# rather than a hard-coded list of EL majors.
+# -- the families (el/, fedora/) at the root and the releases under each -- rather than a
+# hard-coded list.
 list_dirs() {
   get "$1" "${work}/idx" || exit 1
   grep -oE 'href="[^"]+/"' "${work}/idx" | sed 's/^href="//; s/\/"$//' | grep -vE '^\.\.$'
@@ -70,16 +71,20 @@ get "${site}/RPM-GPG-KEY-dag-node" "${mirror}/RPM-GPG-KEY-dag-node" || exit 1
 get "${site}/dagnode-release-latest.noarch.rpm" "${mirror}/dagnode-release-latest.noarch.rpm" \
   || echo "  (no bootstrap alias served)"
 trees=0
-for major in $(list_dirs "${site}/el/"); do
-  for arch in $(list_dirs "${site}/el/${major}/"); do
-    [ "${arch}" = "repodata" ] && continue
-    d="${mirror}/el/${major}/${arch}/repodata"; mkdir -p "${d}"
-    get "${site}/el/${major}/${arch}/repodata/repomd.xml"     "${d}/repomd.xml"     || exit 1
-    get "${site}/el/${major}/${arch}/repodata/repomd.xml.asc" "${d}/repomd.xml.asc" || exit 1
-    trees=$((trees+1)); echo "  el/${major}/${arch}"
+for family in $(list_dirs "${site}/"); do
+  get "${site}/${family}/dagnode-release-latest.noarch.rpm" "${mirror}/${family}/dagnode-release-latest.noarch.rpm" \
+    || echo "  (no bootstrap alias served for ${family}/)"
+  for release in $(list_dirs "${site}/${family}/"); do
+    for arch in $(list_dirs "${site}/${family}/${release}/"); do
+      [ "${arch}" = "repodata" ] && continue
+      d="${mirror}/${family}/${release}/${arch}/repodata"; mkdir -p "${d}"
+      get "${site}/${family}/${release}/${arch}/repodata/repomd.xml"     "${d}/repomd.xml"     || exit 1
+      get "${site}/${family}/${release}/${arch}/repodata/repomd.xml.asc" "${d}/repomd.xml.asc" || exit 1
+      trees=$((trees+1)); echo "  ${family}/${release}/${arch}"
+    done
   done
 done
-[ "${trees}" -gt 0 ] || { echo "FATAL: no trees discovered at ${site}/el/ -- nothing to test"; exit 1; }
+[ "${trees}" -gt 0 ] || { echo "FATAL: no trees discovered at ${site}/ -- nothing to test"; exit 1; }
 
 # Run one case: name, expected exit status, pattern the output must contain, then the site dir.
 # A case that fails for the wrong reason is not a pass, hence matching on the message too.
@@ -109,7 +114,7 @@ built="${work}/built"
 reset_pair() { rm -rf "${served}" "${built}"; cp -r "${mirror}" "${served}"; cp -r "${mirror}" "${built}"; }
 
 reset_pair
-first_xml="$(find "${served}/el" -path '*/repodata/repomd.xml' | sort | head -1)"
+first_xml="$(find "${served}" -path '*/repodata/repomd.xml' | sort | head -1)"
 printf '<repomd>tampered</repomd>\n' > "${first_xml}"
 case_is "detects served metadata that differs from the built tree" 1 \
         "does not serve this run's tree" "${built}" "${url}"
@@ -118,7 +123,7 @@ case_is "detects served metadata that differs from the built tree" 1 \
 # waves through. Pick a donor from a tree whose metadata genuinely differs, since trees with
 # identical metadata carry identical signatures.
 reset_pair
-mapfile -t xmls < <(find "${served}/el" -path '*/repodata/repomd.xml' | sort)
+mapfile -t xmls < <(find "${served}" -path '*/repodata/repomd.xml' | sort)
 donor=""
 for x in "${xmls[@]:1}"; do
   if ! cmp -s "${xmls[0]}" "${x}"; then donor="${x}.asc"; break; fi
@@ -137,7 +142,7 @@ case_is "detects a served public key that is not the one exported" 1 \
         "does not serve this run's tree" "${built}" "${url}"
 
 reset_pair
-rm -f "${served}"/el/*/*/repodata/repomd.xml.asc
+find "${served}" -name repomd.xml.asc -delete
 case_is "detects missing signatures on the served tree" 1 \
         "does not serve this run's tree" "${built}" "${url}"
 
@@ -146,7 +151,7 @@ printf 'not a key\n' > "${built}/RPM-GPG-KEY-dag-node"
 case_is "rejects a public key that is not OpenPGP data" 1 "is not valid OpenPGP data" "${built}" "${url}"
 
 reset_pair
-rm -rf "${built:?}/el"; mkdir -p "${built}/el"
+find "${built:?}" -path '*/repodata/repomd.xml' -delete
 case_is "refuses a built tree with no metadata" 1 "nothing to verify" "${built}" "${url}"
 
 # Unreachable must read as "could not observe", never as "the repository is wrong" -- the two call

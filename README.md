@@ -11,14 +11,17 @@ sudo rpm --import \
 
 # 2. Install the repository definition (package `dagnode-release`)
 sudo dnf install \
-  https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+  https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm          # EL 9, EL 10
+sudo dnf install \
+  https://rpm.dagnode.com/fedora/dagnode-release-latest.noarch.rpm   # Fedora
 ```
 
 `dagnode-release` is signed by the org key, so `dnf` verifies its signature before installing it —
 importing the key first (step 1) is what satisfies that check, since the package that would
 otherwise install the key has not run yet. The package then drops `dagnode.repo` and the signing
 key `RPM-GPG-KEY-dag-node` for every later `dnf install`, and carries subkey rotations forward as
-an ordinary `dnf upgrade`.
+an ordinary `dnf upgrade`. It is built per family — the `.repo` it ships names the family's tree
+(`el/` or `fedora/`) — so step 2 is one of the two lines, for the family of the host.
 
 Both commands fetch over HTTPS — **verify the public key fingerprint** out of band (DNS) before
 importing, so the served copy never vouches for itself:
@@ -43,7 +46,7 @@ dig +short TXT _dagnode-gpg.dagnode.com
 ### Manual install
 
 ```bash
-# Download the served `.repo`
+# Download the served `.repo` (dagnode-fedora.repo on Fedora)
 sudo curl -fsSL -o /etc/yum.repos.d/dagnode.repo \
   https://rpm.dagnode.com/dagnode.repo
 # Verify the served key fingerprint before importing
@@ -74,7 +77,9 @@ enabled=1
 (`dnf` prompts with its fingerprint), and will not pick up a rotated signing subkey automatically.
 Prefer the recommended installation with dnf package `dagnode-release`, which installs `dagnode.repo` and the public key in one step.
 
-The repository serves every Enterprise Linux major and arch: `$releasever` selects `el/9` or `el/10`, `$basearch` the arch tree.
+The repository serves every Enterprise Linux major, Fedora 44, and both arches: `$releasever` selects `el/9` or `el/10`,
+`$basearch` the arch tree. The served `dagnode-fedora.repo` is the same file with `fedora/$releasever/$basearch/` as its
+`baseurl`, which `$releasever` resolves to `fedora/44` on a Fedora 44 host.
 `gpgcheck=1` verifies each package signature, `repo_gpgcheck=1` verifies the repository metadata;
 both against the org key [RPM-GPG-KEY-dag-node](https://rpm.dagnode.com/RPM-GPG-KEY-dag-node).
 `priority=10` gives DagNode packages precedence over the base repositories (in dnf the lower priority number wins; the default is 99).
@@ -200,16 +205,24 @@ primary itself is compromised: the new key and fingerprint are announced here.
 ```
 https://rpm.dagnode.com/
 ├── RPM-GPG-KEY-dag-node              # org public signing key (packages + metadata)
-├── dagnode-release-latest.noarch.rpm # bootstrap package (stable alias to the newest build)
-├── dagnode.repo                      # manual .repo drop-in
-└── el/
-    ├── 9/{x86_64,aarch64}/repodata/…
-    └── 10/{x86_64,aarch64}/repodata/…
+├── dagnode-release-latest.noarch.rpm # EL bootstrap package (stable alias to the newest build)
+├── dagnode.repo                      # manual .repo drop-in, EL
+├── dagnode-fedora.repo               # manual .repo drop-in, Fedora
+├── el/
+│   ├── dagnode-release-latest.noarch.rpm   # the same alias, under its family
+│   ├── 9/{x86_64,aarch64}/repodata/…
+│   └── 10/{x86_64,aarch64}/repodata/…
+└── fedora/
+    ├── dagnode-release-latest.noarch.rpm   # Fedora bootstrap package
+    └── 44/{x86_64,aarch64}/repodata/…
 ```
 
-Packages are `noarch`; each is published into every supported `$basearch` tree so a client's
-`$basearch` baseurl resolves. This is the *served* tree — `main` holds only the workflow, this
-README, and `projects.txt`; no RPMs live in git.
+A package lands in the tree its dist tag names (`.el9`, `.el10`, `.fc44`), and the set of served
+trees is the `SERVED_TREES` list in `publish.yml`: a release built for a tree that is not listed is
+dropped with a warning, so a new distribution is an edit there. Packages are `noarch`; each is
+published into every supported `$basearch` tree so a client's `$basearch` baseurl resolves. This is
+the *served* tree — `main` holds only the workflow, this README, and `projects.txt`; no RPMs live
+in git.
 
 ## How it is published
 

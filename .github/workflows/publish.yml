@@ -37,6 +37,15 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      # The served trees, as <family>/<release>: a package lands in the tree its dist tag names
+      # (.el9 -> el/9, .fc44 -> fedora/44) and only there, and every tree listed here gets signed
+      # metadata even when it has no package. A dist tag with no tree here is dropped with a
+      # warning, so a project cannot create a tree by releasing for a new distribution: adding
+      # one is an edit to this list. Each family carries its own bootstrap alias, since the
+      # dagnode-release package differs per family (its .repo names the family's baseurl).
+      SERVED_TREES: el/9 el/10 fedora/44
+      SERVED_ARCHES: x86_64 aarch64
     steps:
       # Always publish from main -- the released, PR-protected config (projects.txt, README, the
       # index/select scripts). Pinned so a later change of the repo default branch cannot silently
@@ -174,9 +183,9 @@ jobs:
           echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
       # Assemble the served tree + metadata. Packages are noarch, so each is placed into every
-      # supported $basearch tree (x86_64, aarch64) -- a client's baseurl uses $basearch, so the
-      # noarch package must resolve there. --database adds SQLite metadata some clients prefer;
-      # repomd.xml is detached-signed for repo_gpgcheck=1.
+      # supported $basearch tree -- a client's baseurl uses $basearch, so the noarch package
+      # must resolve there. --database adds SQLite metadata some clients prefer; repomd.xml is
+      # detached-signed for repo_gpgcheck=1.
       - name: Build signed repository into _site
         env:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
@@ -191,25 +200,35 @@ jobs:
           # var and stream it via stdin (--passphrase-fd 0) at sign time -- never written to a file.
           [ -n "${GPG_SIGNING_PASSPHRASE}" ] || { echo "::error::GPG_SIGNING_PASSPHRASE secret not set"; exit 1; }
           mkdir -p _site   # exist even with zero packages (initial state) so the copies + index below work
+          # Route each package by its dist tag into one served tree: `.elN` is the el family and
+          # `.fcN` is fedora, N the release. The tree must be in SERVED_TREES (an allowlist), so a
+          # package for a release this repo does not serve is dropped with a warning rather than
+          # creating an unlisted tree with no metadata step behind it.
           for r in $(find incoming -name '*.rpm'); do
             base="$(basename "${r}")"
-            case "${base}" in
-              *.el9.*)  major=9 ;;
-              *.el10.*) major=10 ;;
-              *) echo "::warning::${base} has no elN dist tag -- skipping"; continue ;;
+            if [[ "${base}" =~ \.el([0-9]+)\.noarch\.rpm$ ]]; then
+              tree="el/${BASH_REMATCH[1]}"
+            elif [[ "${base}" =~ \.fc([0-9]+)\.noarch\.rpm$ ]]; then
+              tree="fedora/${BASH_REMATCH[1]}"
+            else
+              echo "::warning::${base} has no elN/fcN dist tag -- skipping"; continue
+            fi
+            case " ${SERVED_TREES} " in
+              *" ${tree} "*) ;;
+              *) echo "::warning::${base} is built for ${tree}, which is not a served tree -- skipping"; continue ;;
             esac
-            for arch in x86_64 aarch64; do
-              mkdir -p "_site/el/${major}/${arch}"
-              cp -f "${r}" "_site/el/${major}/${arch}/"
+            for arch in ${SERVED_ARCHES}; do
+              mkdir -p "_site/${tree}/${arch}"
+              cp -f "${r}" "_site/${tree}/${arch}/"
             done
           done
-          # Generate + sign metadata for EVERY supported tree, even one with zero packages. On the
+          # Generate + sign metadata for EVERY served tree, even one with zero packages. On the
           # initial (empty) state no package-copy above created these dirs, so without this a client
           # baseurl would 404 on a missing repodata/repomd.xml; createrepo_c on an empty dir emits
           # valid (empty) metadata, and repo_gpgcheck=1 clients still need the signed repomd.xml.
-          for major in 9 10; do
-            for arch in x86_64 aarch64; do
-              d="_site/el/${major}/${arch}"
+          for tree in ${SERVED_TREES}; do
+            for arch in ${SERVED_ARCHES}; do
+              d="_site/${tree}/${arch}"
               mkdir -p "${d}"
               createrepo_c --database "${d}"
               printf '%s' "${GPG_SIGNING_PASSPHRASE}" \
@@ -220,21 +239,27 @@ jobs:
             done
           done
           cp RPM-GPG-KEY-dag-node _site/
-          # Serve the manual/config-manager .repo (gpgkey=https:// form) at a stable URL so
-          # `curl -o /etc/yum.repos.d/dagnode.repo` and Ansible get_url work without hand-pasting.
-          # Committed file, so a missing copy is a real error -- no `|| true`.
-          cp dagnode.repo _site/
-          # Stable bootstrap install URL: copy the newest dagnode-release build to a
-          # version-independent name at the site root, so
-          # `dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm` always fetches
-          # the current bootstrap package. sort -V picks the highest version, then highest EL major;
-          # the payload is noarch and identical across majors, so one alias serves every host.
-          latest_rel="$(find _site/el -name 'dagnode-release-*.noarch.rpm' -printf '%f\n' | sort -V | tail -1)"
-          if [ -n "${latest_rel}" ]; then
-            cp -f "$(find _site/el -name "${latest_rel}" | head -1)" _site/dagnode-release-latest.noarch.rpm
-            echo "bootstrap latest alias -> ${latest_rel}"
-          else
-            echo "::warning::no dagnode-release RPM served -- dagnode-release-latest.noarch.rpm not published"
+          # Serve the manual/config-manager .repo files (gpgkey=https:// form), one per family, at
+          # stable URLs so `curl -o /etc/yum.repos.d/dagnode.repo` and Ansible get_url work without
+          # hand-pasting. Committed files, so a missing copy is a real error -- no `|| true`.
+          cp dagnode.repo dagnode-fedora.repo _site/
+          # Stable bootstrap install URLs: copy each family's newest dagnode-release build to a
+          # version-independent name, so `dnf install https://rpm.dagnode.com/<family>/dagnode-release-latest.noarch.rpm`
+          # always fetches the current bootstrap package for that family. The package is built per
+          # family (its .repo names the family's baseurl), so an alias is chosen within one family;
+          # `sort -V` picks the highest version, then the highest release. The site-root alias is the
+          # el family's, the documented EL install URL every existing host and page names.
+          for family in $(printf '%s\n' ${SERVED_TREES} | cut -d/ -f1 | sort -u); do
+            latest_rel="$(find "_site/${family}" -name 'dagnode-release-*.noarch.rpm' -printf '%f\n' | sort -V | tail -1)"
+            if [ -n "${latest_rel}" ]; then
+              cp -f "$(find "_site/${family}" -name "${latest_rel}" | head -1)" "_site/${family}/dagnode-release-latest.noarch.rpm"
+              echo "bootstrap latest alias ${family}/ -> ${latest_rel}"
+            else
+              echo "::warning::no dagnode-release RPM served for ${family} -- ${family}/dagnode-release-latest.noarch.rpm not published"
+            fi
+          done
+          if [ -f _site/el/dagnode-release-latest.noarch.rpm ]; then
+            cp -f _site/el/dagnode-release-latest.noarch.rpm _site/dagnode-release-latest.noarch.rpm
           fi
           cp README.md _site/ 2>/dev/null || true
           # Keep the rpm.dagnode.com custom domain bound under GitHub-Actions Pages deploys.

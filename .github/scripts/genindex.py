@@ -23,13 +23,14 @@ SKIP = {"index.html", "CNAME"}  # infra files, not repository content
 # two commands import the org key before installing the bootstrap package. dnf verifies that
 # package's own signature, so the key must be imported first for the install to succeed.
 FRONT_HTML = (
-    "DagNode Package Repository for EL (RPMs) - https://rpm.dagnode.com/\n"
+    "DagNode Package Repository (RPMs for EL and Fedora) - https://rpm.dagnode.com/\n"
     "\n"
     f'# <a href="{README_URL}#signing-key">Verify</a> the signing-key fingerprint out of band before first use:\n'
     "sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node\n"
     "\n"
-    "# Install the repository:\n"
-    "sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm"
+    "# Install the repository (one line, for your family):\n"
+    "sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm         # EL 9, EL 10\n"
+    "sudo dnf install https://rpm.dagnode.com/fedora/dagnode-release-latest.noarch.rpm  # Fedora"
 )
 
 
