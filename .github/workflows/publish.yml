@@ -164,7 +164,7 @@ jobs:
             # exits 0 and prints only "digests OK" for an UNSIGNED package, so trusting its summary
             # would publish unsigned packages. `-Kv` prints a "Signature ...: OK" line only when a
             # signature is present and verifies against the imported org key.
-            if rpmkeys --dbpath "${rpmdb}" -Kv "${r}" 2>&1 | grep -Eqi 'signature[^:]*:[[:space:]]*OK'; then
+            if rpmkeys --dbpath "${rpmdb}" -Kv "${r}" 2>&1 | grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$'; then
               published=$((published+1))
             else
               echo "::warning::$(basename "${r}") is not signed by the org key -- skipping"
