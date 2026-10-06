@@ -58,6 +58,78 @@ jobs:
       - name: Install createrepo_c + rpm + gnupg
         run: sudo apt-get update && sudo apt-get install -y createrepo-c rpm gnupg
 
+      # Import the signing key first and state, in public terms, which key this run holds, so a
+      # wrong secret is one readable line at the top of the log rather than a warning per package
+      # after every release has been downloaded. The primary fingerprint is compared with the key
+      # the repository serves today: a signing-subkey rotation keeps the primary, so a different
+      # primary is never a rotation, it is the wrong secret. The served public key is then exported
+      # from this import, so what the repository serves can never drift from the key that signs.
+      - name: Import the signing key and state its identity
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${GPG_SIGNING_KEY}" ] || { echo "::error::GPG_SIGNING_KEY is empty: the github-pages environment holds no secret of that name. Set the signing-subkey export: gh secret set GPG_SIGNING_KEY --env github-pages -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
+          # tmpfs (RAM) keyring: the imported private key never lands on persistent disk, and the
+          # ephemeral runner VM (not shared with other jobs) is destroyed at job end.
+          GNUPGHOME="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"; export GNUPGHOME
+          printf '%s\n' "${GPG_SIGNING_KEY}" | gpg --batch --quiet --import \
+            || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again"; exit 1; }
+          fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
+          [ -n "${fpr}" ] || { echo "::error::GPG_SIGNING_KEY carries no secret key: the value is a public key, or an export without the secret part. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again"; exit 1; }
+          # Public identity only: fingerprints and key ids are what the served key file carries.
+          echo "imported key:"
+          gpg --batch --with-colons --list-keys "${fpr}" \
+            | awk -F: '$1=="pub"{printf "  primary  "} $1=="sub"{printf "  subkey   "} $1=="fpr"{print $10} $1=="uid"{print "  uid      " $10}'
+          # One check against the key the repository serves. Unreachable or absent (first publish)
+          # is reported and not fatal; the per-package verification below still fails closed.
+          if curl -fsSL --retry 3 -o served-key.asc "https://rpm.dagnode.com/RPM-GPG-KEY-dag-node"; then
+            served="$(gpg --batch --with-colons --show-keys served-key.asc 2>/dev/null | awk -F: '$1=="fpr"{print $10; exit}')"
+            if [ -n "${served}" ] && [ "${served}" != "${fpr}" ]; then
+              echo "::error::the imported key (primary ${fpr}) is not the key the repository serves (primary ${served}). The github-pages environment's GPG_SIGNING_KEY is a different key from the one that signed the published packages; set the export of the serving key's signing subkey"
+              exit 1
+            fi
+            echo "primary fingerprint matches the served key"
+          else
+            echo "no served key to compare against (first publish, or rpm.dagnode.com unreachable)"
+          fi
+          # Export the served public key WITH a human-readable header: a constant preamble plus the
+          # primary key's identity block (short-id line, fingerprint, uid) derived from the key
+          # itself, so the header can never drift from the key it precedes. gpg/rpm skip any text
+          # before the -----BEGIN PGP PUBLIC KEY BLOCK----- marker, so dnf/rpm import is unaffected
+          # -- this is the same layout the distro RPM-GPG-KEY files carry.
+          pub="$(gpg --batch --with-colons --list-keys "${fpr}")"
+          keylen="$(awk -F: '$1=="pub"{print $3; exit}' <<<"${pub}")"
+          algo="$(awk -F: '$1=="pub"{print $4; exit}' <<<"${pub}")"
+          keyid="$(awk -F: '$1=="pub"{print $5; exit}' <<<"${pub}")"
+          created="$(awk -F: '$1=="pub"{print $6; exit}' <<<"${pub}")"
+          fprhex="$(awk -F: '$1=="fpr"{print $10; exit}' <<<"${pub}")"
+          uid="$(awk -F: '$1=="uid"{print $10; exit}' <<<"${pub}")"
+          case "${algo}" in 1) algoc=R ;; 17) algoc=D ;; 18|22) algoc=E ;; *) algoc="?" ;; esac
+          if [[ "${created}" =~ ^[0-9]+$ ]]; then created_date="$(date -u -d "@${created}" +%Y-%m-%d)"; else created_date="${created%%T*}"; fi
+          grp() { sed -E 's/(.{4})/\1 /g; s/ $//' <<<"$1"; }                # 4-hex groups
+          fpr_spaced="$(grp "${fprhex:0:20}")  $(grp "${fprhex:20:20}")"    # double space mid-fingerprint, as gpg prints it
+          {
+            printf '%s\n' \
+              'DagNode RPM GPG Public Key' \
+              '' \
+              'This public key is used to verify RPM packages and repository' \
+              'metadata signed by DagNode. Packages and the repomd.xml index' \
+              'are signed with the signing subkey this key carries; the' \
+              'primary key is certify-only.' \
+              '' \
+              'Import this key to enable gpgcheck and repo_gpgcheck for the' \
+              'DagNode repositories.' \
+              '' \
+              'Key valid for 10 years. Questions: tools@dagnode.com' \
+              ''
+            printf 'pub   %s%s/%s %s\n' "${keylen}" "${algoc}" "${keyid: -8}" "${created_date}"
+            printf '      Key fingerprint = %s\n' "${fpr_spaced}"
+            printf 'uid                  %s\n\n' "${uid}"
+            gpg --batch --armor --export "${fpr}"
+          } > RPM-GPG-KEY-dag-node
+          echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
+
       # Rebuild from the projects' releases (the source of truth): for each project in
       # projects.txt, select which release tags to keep (bounded history, see
       # select-releases.py) and download only those releases' signed *.rpm. Stateless and
@@ -103,62 +175,19 @@ jobs:
           done
           echo "aggregated:"; find incoming -name '*.rpm' | sort
 
-      # Export the served public key from the signing secret (so it always matches the key that
-      # signed the packages) and re-verify every aggregated RPM against it. Publish only packages
-      # actually signed by the org key: any that fail verification are dropped from incoming/ (with
-      # a warning) so the build step below never copies them. The fail-closed guarantee still holds
-      # -- unsigned packages never reach _site -- without one stale asset blocking the whole rebuild.
-      - name: Export public key + verify packages
-        env:
-          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+      # Verify every aggregated RPM against the exported key. Publish only packages actually signed
+      # by it: any that fail verification are dropped from incoming/ so the build step below never
+      # copies them. The fail-closed guarantee holds -- an unsigned package never reaches _site --
+      # without one stale asset blocking the whole rebuild. The outcome is one diagnosis, not a
+      # line per package: the skipped names, and the key id that signed the first of them next
+      # to the key ids this run imported, which is the whole root cause when they differ.
+      - name: Verify packages against the imported key
         run: |
           set -euo pipefail
-          [ -n "${GPG_SIGNING_KEY}" ] || { echo "::error::GPG_SIGNING_KEY secret not set"; exit 1; }
-          # tmpfs (RAM) keyring: the imported private key never lands on persistent disk, and the
-          # ephemeral runner VM (not shared with other jobs) is destroyed at job end.
-          GNUPGHOME="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"; export GNUPGHOME
-          printf '%s\n' "${GPG_SIGNING_KEY}" | gpg --batch --quiet --import
-          fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
-          [ -n "${fpr}" ] || { echo "::error::no secret key after import"; exit 1; }
-          # Export the served public key WITH a human-readable header: a constant preamble plus the
-          # primary key's identity block (short-id line, fingerprint, uid) derived from the key
-          # itself, so the header can never drift from the key it precedes. gpg/rpm skip any text
-          # before the -----BEGIN PGP PUBLIC KEY BLOCK----- marker, so dnf/rpm import is unaffected
-          # -- this is the same layout the distro RPM-GPG-KEY files carry.
-          pub="$(gpg --batch --with-colons --list-keys "${fpr}")"
-          keylen="$(awk -F: '$1=="pub"{print $3; exit}' <<<"${pub}")"
-          algo="$(awk -F: '$1=="pub"{print $4; exit}' <<<"${pub}")"
-          keyid="$(awk -F: '$1=="pub"{print $5; exit}' <<<"${pub}")"
-          created="$(awk -F: '$1=="pub"{print $6; exit}' <<<"${pub}")"
-          fprhex="$(awk -F: '$1=="fpr"{print $10; exit}' <<<"${pub}")"
-          uid="$(awk -F: '$1=="uid"{print $10; exit}' <<<"${pub}")"
-          case "${algo}" in 1) algoc=R ;; 17) algoc=D ;; 18|22) algoc=E ;; *) algoc="?" ;; esac
-          if [[ "${created}" =~ ^[0-9]+$ ]]; then created_date="$(date -u -d "@${created}" +%Y-%m-%d)"; else created_date="${created%%T*}"; fi
-          grp() { sed -E 's/(.{4})/\1 /g; s/ $//' <<<"$1"; }                # 4-hex groups
-          fpr_spaced="$(grp "${fprhex:0:20}")  $(grp "${fprhex:20:20}")"    # double space mid-fingerprint, as gpg prints it
-          {
-            printf '%s\n' \
-              'DagNode RPM GPG Public Key' \
-              '' \
-              'This public key is used to verify RPM packages and repository' \
-              'metadata signed by DagNode. Packages and the repomd.xml index' \
-              'are signed with the signing subkey this key carries; the' \
-              'primary key is certify-only.' \
-              '' \
-              'Import this key to enable gpgcheck and repo_gpgcheck for the' \
-              'DagNode repositories.' \
-              '' \
-              'Key valid for 10 years. Questions: tools@dagnode.com' \
-              ''
-            printf 'pub   %s%s/%s %s\n' "${keylen}" "${algoc}" "${keyid: -8}" "${created_date}"
-            printf '      Key fingerprint = %s\n' "${fpr_spaced}"
-            printf 'uid                  %s\n\n' "${uid}"
-            gpg --batch --armor --export "${fpr}"
-          } > RPM-GPG-KEY-dag-node
           rpmdb="$(mktemp -d)"
           rpmkeys --dbpath "${rpmdb}" --import RPM-GPG-KEY-dag-node
           shopt -s nullglob
-          published=0; skipped=0
+          published=0; skipped=()
           for r in $(find incoming -name '*.rpm'); do
             # Require a cryptographic signature LINE that validates, not just a zero exit: `--checksig`
             # exits 0 and prints only "digests OK" for an UNSIGNED package, so trusting its summary
@@ -167,20 +196,26 @@ jobs:
             if rpmkeys --dbpath "${rpmdb}" -Kv "${r}" 2>&1 | grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$'; then
               published=$((published+1))
             else
-              echo "::warning::$(basename "${r}") is not signed by the org key -- skipping"
-              rm -f "${r}"
-              skipped=$((skipped+1))
+              skipped+=("${r}")
             fi
           done
-          echo "signature check: ${published} published, ${skipped} skipped (unsigned)"
+          echo "signature check: ${published} published, ${#skipped[@]} skipped"
+          if [ "${#skipped[@]}" -gt 0 ]; then
+            # Who signed the first skipped package, against what this run imported. `-Kv` names the
+            # signer's key id on its signature line (NOKEY when the key is not in the rpmdb).
+            signer="$(rpmkeys --dbpath "${rpmdb}" -Kv "${skipped[0]}" 2>&1 | { grep -i signature || true; } | head -1 | sed 's/^ *//')"
+            imported="$(gpg --batch --with-colons --list-keys | awk -F: '$1=="fpr"{print substr($10, length($10)-15)}' | paste -sd' ')"
+            echo "::warning::${#skipped[@]} package(s) are not signed by the imported key and are dropped from this publish. First: $(basename "${skipped[0]}"): ${signer:-no signature line}. Imported key ids: ${imported}"
+            echo "::group::skipped packages"; for r in "${skipped[@]}"; do basename "${r}"; done | sort; echo "::endgroup::"
+            for r in "${skipped[@]}"; do rm -f "${r}"; done
+          fi
           # Zero packages with zero skips is the legitimate bootstrap state; every downloaded
           # package failing verification is a key/secret mismatch, and deploying would replace
           # the served repository with an empty one.
-          if [ "${skipped}" -gt 0 ] && [ "${published}" -eq 0 ]; then
-            echo "::error::every downloaded package failed signature verification -- refusing to deploy an empty repository over the served one"
+          if [ "${#skipped[@]}" -gt 0 ] && [ "${published}" -eq 0 ]; then
+            echo "::error::every downloaded package failed signature verification: the imported key is not the key that signed them. Refusing to deploy an empty repository over the served one"
             exit 1
           fi
-          echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
       # Assemble the served tree + metadata. Packages are noarch, so each is placed into every
       # supported $basearch tree -- a client's baseurl uses $basearch, so the noarch package
