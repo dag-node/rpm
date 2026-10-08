@@ -146,26 +146,25 @@ jobs:
       - name: Aggregate signed RPMs from project releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # History floor: serve the latest patch of every MAJOR.MINOR series at or above
-          # MIN_VERSION, per project. This drops the pre-integrations-split 0.6.x line while
-          # keeping every current minor (dagnode-release at v1.0.0+ sits above the floor). Raise
-          # the floor to evict more old minors; their releases stay on GitHub, just not served here.
-          MIN_VERSION: "0.11.1"
         run: |
           set -euo pipefail
           mkdir -p incoming
           # Read the project list without a `... | while read` pipeline, whose subshell would
-          # swallow a `set -e` abort from the downloads below.
+          # swallow a `set -e` abort from the downloads below. A line is `owner/name [floor]`:
+          # the floor is the project's history bound (select-releases.py), 0.0.0 where absent.
           mapfile -t projects < <(grep -vE '^\s*(#|$)' projects.txt)
-          for proj in "${projects[@]}"; do
-            echo "::group::${proj}"
+          for line in "${projects[@]}"; do
+            read -r proj floor <<< "${line}"
+            floor="${floor:-0.0.0}"
+            echo "::group::${proj} (floor ${floor})"
             # List all tags (cheap, metadata only), then let select-releases.py pick the retained
             # set; only those are downloaded. A failed listing must abort rather than rebuild the
             # repo without this project's packages -- the assignment propagates gh's exit status
             # under `set -e`. --limit is generous headroom over the retained count; gh returns
             # newest-first, so the recent minors we keep are always covered.
             all_tags="$(gh release list --repo "${proj}" --limit 1000 --json tagName -q '.[].tagName')"
-            kept_tags="$(printf '%s\n' "${all_tags}" | python3 .github/scripts/select-releases.py "${MIN_VERSION}")"
+            kept_tags="$(printf '%s\n' "${all_tags}" | python3 .github/scripts/select-releases.py "${floor}")"
+            echo "retained: ${kept_tags//$'\n'/ }"
             for tag in ${kept_tags}; do
               # Only releases that actually carry a *.rpm asset are downloaded. A release with no
               # rpm asset is normal (e.g. a docs-only tag) and skipped; a download that then FAILS
@@ -174,7 +173,10 @@ jobs:
               n_rpm="$(gh release view "${tag}" --repo "${proj}" --json assets \
                         -q '[.assets[].name | select(endswith(".rpm"))] | length')"
               if [ "${n_rpm}" -gt 0 ]; then
-                gh release download "${tag}" --repo "${proj}" --pattern '*.rpm' --dir "incoming/${tag}"
+                # Keyed by project as well as tag: two projects release a v1.0.0 each, and a
+                # set's tag (core/v0.1.0) nests a directory of its own.
+                mkdir -p "incoming/${proj}/${tag}"
+                gh release download "${tag}" --repo "${proj}" --pattern '*.rpm' --dir "incoming/${proj}/${tag}"
               else
                 echo "  (${tag}: no RPM assets)"
               fi
