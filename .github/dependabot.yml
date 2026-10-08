@@ -1,10 +1,11 @@
 # Keeps the GitHub Actions pins in .github/workflows/ current. No other ecosystems:
-# the repo holds only the publish workflow and its scripts, no package manifests.
+# the repo holds only the publish workflow and its scripts, no package manifests. A bump
+# targets main, the branch the publish workflow checks out and every PR merges into.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
-    target-branch: develop
+    target-branch: main
     schedule:
       interval: monthly
     labels: ["dependencies"]
