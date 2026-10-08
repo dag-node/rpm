@@ -34,6 +34,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -64,15 +65,20 @@ jobs:
       # the repository serves today: a signing-subkey rotation keeps the primary, so a different
       # primary is never a rotation, it is the wrong secret. The served public key is then exported
       # from this import, so what the repository serves can never drift from the key that signs.
+      # The keyring is this step's alone: it lives on tmpfs (/dev/shm), a /dev/shm that is absent
+      # or not tmpfs refuses, and the trap stops the agent the import started and wipes it. The
+      # signing step imports the key again into a keyring of its own.
       - name: Import the signing key and state its identity
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
           set -euo pipefail
           [ -n "${GPG_SIGNING_KEY}" ] || { echo "::error::GPG_SIGNING_KEY is empty: the github-pages environment holds no secret of that name. Set the signing-subkey export: gh secret set GPG_SIGNING_KEY --env github-pages -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
-          # tmpfs (RAM) keyring: the imported private key never lands on persistent disk, and the
-          # ephemeral runner VM (not shared with other jobs) is destroyed at job end.
-          GNUPGHOME="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"; export GNUPGHOME
+          [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
+            || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }
+          GNUPGHOME="$(mktemp -d -p /dev/shm)" || { echo "::error::no directory could be created under /dev/shm"; exit 1; }
+          export GNUPGHOME
+          trap 'gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${GNUPGHOME}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | gpg --batch --quiet --import \
             || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again"; exit 1; }
           fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
@@ -128,7 +134,6 @@ jobs:
             printf 'uid                  %s\n\n' "${uid}"
             gpg --batch --armor --export "${fpr}"
           } > RPM-GPG-KEY-dag-node
-          echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
 
       # Rebuild from the projects' releases (the source of truth): for each project in
       # projects.txt, select which release tags to keep (bounded history, see
@@ -204,7 +209,8 @@ jobs:
             # Who signed the first skipped package, against what this run imported. `-Kv` names the
             # signer's key id on its signature line (NOKEY when the key is not in the rpmdb).
             signer="$(rpmkeys --dbpath "${rpmdb}" -Kv "${skipped[0]}" 2>&1 | { grep -i signature || true; } | head -1 | sed 's/^ *//')"
-            imported="$(gpg --batch --with-colons --list-keys | awk -F: '$1=="fpr"{print substr($10, length($10)-15)}' | paste -sd' ')"
+            # The key ids are read off the exported public key; this step holds no secret keyring.
+            imported="$(gpg --batch --with-colons --show-keys RPM-GPG-KEY-dag-node 2>/dev/null | awk -F: '$1=="fpr"{print substr($10, length($10)-15)}' | paste -sd' ')"
             echo "::warning::${#skipped[@]} package(s) are not signed by the imported key and are dropped from this publish. First: $(basename "${skipped[0]}"): ${signer:-no signature line}. Imported key ids: ${imported}"
             echo "::group::skipped packages"; for r in "${skipped[@]}"; do basename "${r}"; done | sort; echo "::endgroup::"
             for r in "${skipped[@]}"; do rm -f "${r}"; done
@@ -223,17 +229,24 @@ jobs:
       # detached-signed for repo_gpgcheck=1.
       - name: Build signed repository into _site
         env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Last consumer of the tmpfs keyring: wipe it on step exit, success or failure, so the
-          # imported private key is gone before the Pages actions below run.
-          trap 'rm -rf "${GNUPGHOME}"' EXIT
           # The org signing key is passphrase-protected; repomd.xml is detached-signed below with
-          # the key in the tmpfs GNUPGHOME from the previous step. Keep the passphrase in the env
-          # var and stream it via stdin (--passphrase-fd 0) at sign time -- never written to a file.
+          # the key imported here into this step's own tmpfs keyring, which the trap wipes, agent
+          # first, on exit, success or failure, so the private key is gone before the Pages actions
+          # below run. The passphrase stays in the env var and is streamed over stdin
+          # (--passphrase-fd 0) at sign time -- never written to a file.
           [ -n "${GPG_SIGNING_PASSPHRASE}" ] || { echo "::error::GPG_SIGNING_PASSPHRASE secret not set"; exit 1; }
+          [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
+            || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }
+          GNUPGHOME="$(mktemp -d -p /dev/shm)" || { echo "::error::no directory could be created under /dev/shm"; exit 1; }
+          export GNUPGHOME
+          trap 'gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${GNUPGHOME}"' EXIT
+          printf '%s\n' "${GPG_SIGNING_KEY}" | gpg --batch --quiet --import \
+            || { echo "::error::GPG_SIGNING_KEY did not import in the signing step"; exit 1; }
           mkdir -p _site   # exist even with zero packages (initial state) so the copies + index below work
           # Route each package by its dist tag into one served tree: `.elN` is the el family and
           # `.fcN` is fedora, N the release. The tree must be in SERVED_TREES (an allowlist), so a
