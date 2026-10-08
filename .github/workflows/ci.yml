@@ -41,6 +41,7 @@ jobs:
           set -euo pipefail
           shellcheck .github/scripts/*.sh
           python3 -m py_compile .github/scripts/*.py
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
           python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
                   .github/workflows/*.yml
           echo "lint ok"

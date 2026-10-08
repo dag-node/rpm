@@ -236,8 +236,11 @@ metadata with `createrepo_c`, detached-signs `repomd.xml`, and deploys via GitHu
 **Actions → Publish RPM repository → Run workflow**.
 
 History is bounded by a version floor so the repo does not carry retired lines: for each package
-it serves the latest patch of every `MAJOR.MINOR` series at or above `MIN_VERSION` (in
-`publish.yml`, currently `0.11.1` — dropping the pre-integrations-split `0.6.x` packages).
+it serves the latest patch of every `MAJOR.MINOR` series at or above the project's floor, the
+optional second field of its `projects.txt` line (`tools-agent-tools-restricted` carries `0.11.1`,
+dropping the pre-integrations-split `0.6.x` packages; a project without one serves every series).
+A tag is `vX.Y.Z` or, for a repository releasing several packages, `<set>/vX.Y.Z`
+(`core/v0.1.0`), each set a series of its own.
 Superseded patches and versions below the floor are not served — their GitHub Releases remain, so
 lowering the floor or a manual rebuild restores them. Nothing is ever deleted from a project's
 releases; this repo only chooses what to serve.

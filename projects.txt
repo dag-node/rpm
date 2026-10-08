@@ -1,6 +1,8 @@
-# Projects aggregated into the DagNode RPM repository, one owner/name per line.
+# Projects aggregated into the DagNode RPM repository, one `owner/name [floor]` per line.
 # publish.yml downloads every release's signed *.rpm from each and rebuilds the repo
 # statelessly (the releases are the source of truth; no RPMs are stored in this repo).
+# A release tag is vX.Y.Z or <set>/vX.Y.Z; the optional floor is the lowest X.Y.Z served for
+# the project (default 0.0.0), so a retired line stays on GitHub and off the served tree.
 # A '#' comment or blank line is ignored. Add a sibling tools-* repo here when it ships RPMs.
 dag-node/rpm-dagnode-release
-dag-node/tools-agent-tools-restricted
+dag-node/tools-agent-tools-restricted 0.11.1

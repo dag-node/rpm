@@ -15,10 +15,10 @@ what it *did*; the conventions after them say what the operator does when a gate
   `projects.txt`, and the licence metadata (`LICENSE`, `LICENSES/`, `REUSE.toml`).
   Never RPMs, never a key copy: the served public key is exported from the signing secret on
   every run, so a committed copy could only drift from what actually signs.
-- **Only final `vX.Y.Z` tags are served.** `select-releases.py` filters tags to
-  `^v\d+\.\d+\.\d+$` and bounds history by a version floor (latest patch of every MAJOR.MINOR
-  series at or above `MIN_VERSION`, per project). Prereleases (`-rc.N`) never reach the
-  repository.
+- **Only final `vX.Y.Z` and `<set>/vX.Y.Z` tags are served.** `select-releases.py` reads a
+  tag of either form, a set being its own run of series, and bounds history by the project's
+  floor from `projects.txt` (latest patch of every MAJOR.MINOR series at or above it; no floor
+  where the line has none). Prereleases (`-rc.N`) never reach the repository.
 - **Verification is fail-closed.** Every downloaded package must show a validating
   `rpmkeys -Kv` signature line against the org key (an unsigned package exits 0 — the exit
   code alone proves nothing); a single failure drops that package with a warning, but if
