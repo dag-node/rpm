@@ -6,3 +6,5 @@
 # A '#' comment or blank line is ignored. Add a sibling tools-* repo here when it ships RPMs.
 dag-node/rpm-dagnode-release
 dag-node/tools-agent-tools-restricted 0.11.1
+dag-node/ai-tools-assets-tools
+dag-node/ai-tools-assets
