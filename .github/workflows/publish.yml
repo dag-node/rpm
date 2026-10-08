@@ -89,7 +89,10 @@ jobs:
             | awk -F: '$1=="pub"{printf "  primary  "} $1=="sub"{printf "  subkey   "} $1=="fpr"{print $10} $1=="uid"{print "  uid      " $10}'
           # One check against the key the repository serves. Unreachable or absent (first publish)
           # is reported and not fatal; the per-package verification below still fails closed.
-          if curl -fsSL --retry 3 -o served-key.asc "https://rpm.dagnode.com/RPM-GPG-KEY-dag-node"; then
+          # HTTPS alone, redirects included, and bounded, so the comparison reads the served key
+          # over the transport the clients use and a stalled fetch cannot hold the job.
+          if curl -fsSL --proto '=https' --proto-redir '=https' --max-time 120 --retry 3 \
+                  -o served-key.asc "https://rpm.dagnode.com/RPM-GPG-KEY-dag-node"; then
             served="$(gpg --batch --with-colons --show-keys served-key.asc 2>/dev/null | awk -F: '$1=="fpr"{print $10; exit}')"
             if [ -n "${served}" ] && [ "${served}" != "${fpr}" ]; then
               echo "::error::the imported key (primary ${fpr}) is not the key the repository serves (primary ${served}). The github-pages environment's GPG_SIGNING_KEY is a different key from the one that signed the published packages; set the export of the serving key's signing subkey"
