@@ -149,6 +149,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p incoming
+          # retry <command...>: run each GitHub API read up to four times, 5, 15 and 45 seconds apart,
+          # since the API answers an occasional 5xx to a release or asset read that succeeds on the next
+          # request. Each failed attempt emits ::warning::, and the last attempt's status is returned,
+          # so a read that fails every attempt still aborts the run under `set -e`.
+          retry() {
+            local attempt=1 delay=5 status=0
+            while true; do
+              "$@" && return 0 || status=$?
+              if [ "${attempt}" -ge 4 ]; then
+                return "${status}"
+              fi
+              echo "::warning::attempt ${attempt} of 4 failed (exit ${status}): $*; retrying in ${delay}s" >&2
+              sleep "${delay}"
+              attempt=$((attempt + 1))
+              delay=$((delay * 3))
+            done
+          }
           # Read the project list without a `... | while read` pipeline, whose subshell would
           # swallow a `set -e` abort from the downloads below. A line is `owner/name [floor]`:
           # the floor is the project's history bound (select-releases.py), 0.0.0 where absent.
@@ -162,7 +179,7 @@ jobs:
             # repo without this project's packages -- the assignment propagates gh's exit status
             # under `set -e`. --limit is generous headroom over the retained count; gh returns
             # newest-first, so the recent minors we keep are always covered.
-            all_tags="$(gh release list --repo "${proj}" --limit 1000 --json tagName -q '.[].tagName')"
+            all_tags="$(retry gh release list --repo "${proj}" --limit 1000 --json tagName -q '.[].tagName')"
             kept_tags="$(printf '%s\n' "${all_tags}" | python3 .github/scripts/select-releases.py "${floor}")"
             echo "retained: ${kept_tags//$'\n'/ }"
             for tag in ${kept_tags}; do
@@ -170,13 +187,14 @@ jobs:
               # rpm asset is normal (e.g. a docs-only tag) and skipped; a download that then FAILS
               # is a real error (network/rate-limit) and aborts the run rather than deploying a repo
               # that silently drops that release's already-published packages.
-              n_rpm="$(gh release view "${tag}" --repo "${proj}" --json assets \
+              n_rpm="$(retry gh release view "${tag}" --repo "${proj}" --json assets \
                         -q '[.assets[].name | select(endswith(".rpm"))] | length')"
               if [ "${n_rpm}" -gt 0 ]; then
                 # Keyed by project as well as tag: two projects release a v1.0.0 each, and a
-                # set's tag (core/v0.1.0) nests a directory of its own.
+                # set's tag (core/v0.1.0) nests a directory of its own. --clobber lets a retried
+                # download overwrite a file an earlier attempt left partial.
                 mkdir -p "incoming/${proj}/${tag}"
-                gh release download "${tag}" --repo "${proj}" --pattern '*.rpm' --dir "incoming/${proj}/${tag}"
+                retry gh release download "${tag}" --repo "${proj}" --pattern '*.rpm' --dir "incoming/${proj}/${tag}" --clobber
               else
                 echo "  (${tag}: no RPM assets)"
               fi
