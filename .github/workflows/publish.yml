@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment:
       name: github-pages
@@ -55,9 +55,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 -- workflow + projects.txt + README only, no RPMs in git
         with:
           ref: main
+          # The run reads releases through `gh` with GH_TOKEN in a step's env and does not run git
+          # against the remote, so the token is not left in .git/config for later steps.
+          persist-credentials: false
 
       - name: Install createrepo_c + rpm + gnupg
         run: sudo apt-get update && sudo apt-get install -y createrepo-c rpm gnupg
+
+      # Swap off before the first step that receives a secret, so a page holding the key or its
+      # passphrase is not written to a swap device; this step receives none. /proc/swaps holding its
+      # header line alone is the check, and a file that cannot be read refuses. The runner process
+      # holds the job's secrets from before its first step, so a page of it written to swap before
+      # this step is outside the check. The lines read as ai-tools-assets-tools' `release-steps.sh
+      # swap-off` prints them, so the release logs and this one compare line for line.
+      - name: Swap is off before the first step that receives a secret
+        run: |
+          set -euo pipefail
+          sudo swapoff -a || { echo "::error::sudo swapoff -a failed; the signing key is not imported while swap may be on"; exit 1; }
+          swaps="$(cat /proc/swaps)" || { echo "::error::/proc/swaps could not be read, so swap is not shown to be off"; exit 1; }
+          [[ "${swaps}" =~ ^Filename[[:space:]] && "${swaps}" != *$'\n'* ]] \
+            || { echo "::error::/proc/swaps does not hold its header line alone, so swap is not shown to be off"; exit 1; }
+          echo "swap is off: /proc/swaps lists no device"
+          awk '/^(MemTotal|MemAvailable|Shmem|SwapTotal|SwapFree):/ { print "memory: " $1 " " $2 " " $3 }' /proc/meminfo \
+            || echo "::warning::/proc/meminfo could not be read; the memory lines are not logged"
 
       # Import the signing key first and state, in public terms, which key this run holds, so a
       # wrong secret is one readable line at the top of the log rather than a warning per package
@@ -263,6 +283,10 @@ jobs:
           # below run. The passphrase stays in the env var and is streamed over stdin
           # (--passphrase-fd 0) at sign time -- never written to a file.
           [ -n "${GPG_SIGNING_PASSPHRASE}" ] || { echo "::error::GPG_SIGNING_PASSPHRASE secret not set"; exit 1; }
+          # The swap step ran before the downloads; the key enters this step's process only while
+          # /proc/swaps still lists no device.
+          swaps="$(cat /proc/swaps)" && [[ "${swaps}" =~ ^Filename[[:space:]] && "${swaps}" != *$'\n'* ]] \
+            || { echo "::error::/proc/swaps does not hold its header line alone, so swap is not shown to be off; the signing key is not imported"; exit 1; }
           [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
             || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }
           GNUPGHOME="$(mktemp -d -p /dev/shm)" || { echo "::error::no directory could be created under /dev/shm"; exit 1; }
