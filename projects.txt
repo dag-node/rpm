@@ -6,7 +6,9 @@
 # A '#' comment or blank line is ignored. Add a sibling tools-* repo here when it ships RPMs.
 dag-node/rpm-dagnode-release
 dag-node/tools-agent-tools-restricted 0.11.1
-dag-node/ai-tools-assets-tools
+# ai-tools-assets-tools 1.0.0 shipped one RPM without an elN/fcN dist tag, which the publish
+# cannot place in a tree; every release from 1.1.0 carries one per served distribution.
+dag-node/ai-tools-assets-tools 1.1.0
 # ai-tools-assets: the floor applies to every set it releases. core's packages below 0.2.3 are
 # named ai-tools-assets-core, and 0.2.3 obsoletes that name, so 0.2.0 keeps the 0.2 series alone;
 # a set released below 0.2.0 is not served until this floor moves.

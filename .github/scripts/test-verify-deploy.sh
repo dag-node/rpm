@@ -72,6 +72,9 @@ get "${site}/dagnode-release-latest.noarch.rpm" "${mirror}/dagnode-release-lates
   || echo "  (no bootstrap alias served)"
 trees=0
 for family in $(list_dirs "${site}/"); do
+  # curl does not create the directory it writes into; without it the alias fetch failed on the
+  # write (curl exit 23, reported as HTTP 000) and the family's alias was never mirrored.
+  mkdir -p "${mirror}/${family}"
   get "${site}/${family}/dagnode-release-latest.noarch.rpm" "${mirror}/${family}/dagnode-release-latest.noarch.rpm" \
     || echo "  (no bootstrap alias served for ${family}/)"
   for release in $(list_dirs "${site}/${family}/"); do
