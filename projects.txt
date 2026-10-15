@@ -7,4 +7,7 @@
 dag-node/rpm-dagnode-release
 dag-node/tools-agent-tools-restricted 0.11.1
 dag-node/ai-tools-assets-tools
-dag-node/ai-tools-assets
+# ai-tools-assets: the floor applies to every set it releases. core's packages below 0.2.3 are
+# named ai-tools-assets-core, and 0.2.3 obsoletes that name, so 0.2.0 keeps the 0.2 series alone;
+# a set released below 0.2.0 is not served until this floor moves.
+dag-node/ai-tools-assets 0.2.0
