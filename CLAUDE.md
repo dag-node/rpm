@@ -28,7 +28,8 @@ what it *did*; the conventions after them say what the operator does when a gate
   export) and `GPG_SIGNING_PASSPHRASE` appear only in step `env:` blocks — never
   `${{ secrets.* }}` inside a `run:` script, never argv. The imported keyring lives in a
   tmpfs `GNUPGHOME` and is trap-wiped before the third-party Pages actions run; the
-  passphrase streams over a file descriptor.
+  passphrase streams over a file descriptor. Swap is turned off, and checked off, before the first
+  step that receives a secret, and the signing step checks it again before its import.
 - **Runs are serialized** (`concurrency: rpm-repository`, no cancel), so concurrent project
   releases queue instead of racing the Pages deploy. A rebuild is idempotent: any dispatch
   means "rebuild everything from the releases".
