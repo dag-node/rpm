@@ -33,6 +33,9 @@ what it *did*; the conventions after them say what the operator does when a gate
   releases queue instead of racing the Pages deploy. A rebuild is idempotent: any dispatch
   means "rebuild everything from the releases".
 - **Actions are pinned to full-length commit SHAs**; Dependabot maintains the pins via PRs.
+  Every job names its runner image (`ubuntu-26.04`), never `ubuntu-latest`, so the tools a run
+  installs with `apt-get` change only in a reviewed commit, and every job carries a
+  `timeout-minutes` bound.
 - **Least privilege is a ceiling, not a starting point.** The job holds `contents:read` +
   `pages:write` + `id-token:write`, reads public releases with its own `GITHUB_TOKEN`, and
   writes nothing outside `_site`. It never takes a cross-repo or long-lived write token;
